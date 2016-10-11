@@ -1125,6 +1125,9 @@ class UserKeyMustBeSpecifiedException extends S3Exception {
   }
 }
 
+// Currently not used. Would not work anyway with newly added CORS exceptions that are
+// many-to-one of string-to-exception.class.
+// TODO: Remove?
 public enum S3Exceptions {
   INSTANCE;
   public static final Map<String, Class<? extends S3Exception>> exceptionCodeToClassMap;

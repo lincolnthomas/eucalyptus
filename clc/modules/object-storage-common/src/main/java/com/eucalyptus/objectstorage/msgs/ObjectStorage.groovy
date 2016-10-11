@@ -69,8 +69,17 @@ import edu.ucsb.eucalyptus.msgs.StreamedBaseMessage
 @ComponentMessage(ObjectStorage.class)
 public class ObjectStorageResponseType extends ObjectStorageRequestType {
   HttpResponseStatus status; //Most should be 200-ok, but for deletes etc it may be 204-No Content
+  protected String bucketUuid; //Used for looking up CORS rules by bucket UUID
 
   def ObjectStorageResponseType() {}
+
+  public String getBucketUuid() {
+    return bucketUuid;
+  }
+
+  public void setBucketUuid(String bucketUuid) {
+    this.bucketUuid = bucketUuid;
+  }
 }
 
 @ComponentMessage(ObjectStorage.class)
@@ -84,9 +93,13 @@ public class ObjectStorageStreamingResponseType extends StreamedBaseMessage {
 public class ObjectStorageRequestType extends BaseMessage {
   protected Date timeStamp;
   BucketLogData logData;
+  // This is sometimes the bucket name, sometimes the bucket UUID.
+  //TODO: Stop doing that! Make separate fields.
   protected String bucket;
   protected String key;
-
+  protected String origin;
+  protected String httpMethod;
+  
   public ObjectStorageRequestType() {}
 
   public ObjectStorageRequestType(String bucket, String key) {
@@ -120,6 +133,22 @@ public class ObjectStorageRequestType extends BaseMessage {
 
   public Date getTimestamp() {
     return this.timeStamp;
+  }
+
+  public String getOrigin() {
+    return origin;
+  }
+
+  public void setOrigin(String origin) {
+    this.origin = origin;
+  }
+
+  public String getHttpMethod() {
+    return httpMethod;
+  }
+
+  public void setHttpMethod(String httpMethod) {
+    this.httpMethod = httpMethod;
   }
 
   public UserPrincipal getUser() {
@@ -159,6 +188,10 @@ public class ObjectStorageDataResponseType extends ObjectStorageStreamingRespons
   String cacheControl;
   String contentEncoding;
   String expires;
+  String origin;
+  String httpMethod;
+  String bucket;
+  String bucketUuid;
 }
 
 public class ObjectStorageDataGetRequestType extends ObjectStorageDataRequestType {

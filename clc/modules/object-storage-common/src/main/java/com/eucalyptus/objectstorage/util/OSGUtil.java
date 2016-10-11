@@ -96,6 +96,8 @@ import com.eucalyptus.objectstorage.exceptions.s3.S3Exception;
 import com.eucalyptus.objectstorage.msgs.HeadObjectResponseType;
 import com.eucalyptus.objectstorage.msgs.ObjectStorageDataResponseType;
 import com.eucalyptus.objectstorage.msgs.ObjectStorageErrorMessageType;
+import com.eucalyptus.objectstorage.msgs.ObjectStorageRequestType;
+import com.eucalyptus.objectstorage.msgs.ObjectStorageResponseType;
 import com.eucalyptus.storage.msgs.s3.CorsMatchResult;
 import com.eucalyptus.storage.msgs.s3.CorsRule;
 import com.eucalyptus.util.EucalyptusCloudException;
@@ -287,6 +289,47 @@ public class OSGUtil {
     }
     return corsMatchResult;
   }  
+
+  public static void setCorsInfo(ObjectStorageRequestType request, BaseMessage msg, String bucketUuid) {
+    // NOTE: The getBucket() might be the bucket name, or might be the UUID, depending on how it's used by the caller.
+    // So, we don't depend on it to be either one. We just copy it to the reply so it shows up in 
+    // cases that normally use it, like exception messages.
+    // The getBucketUuid() is the field we depend on to look up bucket entities in the DB.
+    // 
+    // Don't change any response fields that are already set.
+    
+    if (request != null && msg != null) {
+      if (msg instanceof ObjectStorageResponseType) {
+        ObjectStorageResponseType response = (ObjectStorageResponseType) msg;
+        if (response.getOrigin() == null) {
+          response.setOrigin(request.getOrigin());
+        }
+        if (response.getHttpMethod() == null) {
+          response.setHttpMethod(request.getHttpMethod());
+        }
+        if (response.getBucket() == null) {
+          response.setBucket(request.getBucket());
+        }
+        if (response.getBucketUuid() == null) {
+          response.setBucketUuid(bucketUuid);
+        }
+      } else if (msg instanceof ObjectStorageDataResponseType) {
+        ObjectStorageDataResponseType response = (ObjectStorageDataResponseType) msg;
+        if (response.getOrigin() == null) {
+          response.setOrigin(request.getOrigin());
+        }
+        if (response.getHttpMethod() == null) {
+          response.setHttpMethod(request.getHttpMethod());
+        }
+        if (response.getBucket() == null) {
+          response.setBucket(request.getBucket());
+        }
+        if (response.getBucketUuid() == null) {
+          response.setBucketUuid(bucketUuid);
+        }
+      }
+    }
+  }
 
   public static String[] getTarget(String operationPath) {
     operationPath = operationPath.replaceAll("^/{2,}", "/"); // If its in the form "/////bucket/key", change it to "/bucket/key"
