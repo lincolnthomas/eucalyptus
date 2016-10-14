@@ -300,8 +300,8 @@ public class OSGUtil {
       throws S3Exception, InternalErrorException {
     OSGUtil.setCorsInfo(request, response, bucket.getBucketName(), bucket.getBucketUuid());
   }
-  
-  public static void setCorsInfo(ObjectStorageRequestType request, ObjectStorageCommonResponseType response, String bucketName, String bucketUuid) 
+   
+  private static void setCorsInfo(ObjectStorageRequestType request, ObjectStorageCommonResponseType response, String bucketName, String bucketUuid) 
       throws S3Exception, InternalErrorException {
     // NOTE: The request.getBucket() might be the bucket name, or might be the UUID, or might not be populated,
     // depending on how it's already used by the caller. 
@@ -313,9 +313,6 @@ public class OSGUtil {
     
     LOG.debug("LPT in setCorsInfo");
 
-    // If it stays null, tells addCorsResponseHeaders not to add any headers
-    response.setAllowedOrigin(null);
-    
     if (request == null) {
       throw new InternalErrorException("setCorsInfo called with a null request, bucket " + bucketName);
     }
@@ -323,6 +320,9 @@ public class OSGUtil {
     if (response == null) {
       throw new InternalErrorException("setCorsInfo called with a null response, bucket " + bucketName);
     }
+    
+    // If it stays null, tells addCorsResponseHeaders not to add any headers
+    response.setAllowedOrigin(null);
     
     if (bucketUuid == null || bucketUuid.isEmpty()) {
       LOG.debug("LPT No bucket UUID, so no CORS headers");
