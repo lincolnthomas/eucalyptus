@@ -75,6 +75,7 @@ import com.eucalyptus.http.MappingHttpResponse;
 import com.eucalyptus.objectstorage.ObjectStorageGateway;
 import com.eucalyptus.objectstorage.msgs.DeleteResponseType;
 import com.eucalyptus.objectstorage.util.ObjectStorageProperties;
+import com.eucalyptus.objectstorage.util.OSGUtil;
 import com.eucalyptus.storage.common.DateFormatter;
 import com.eucalyptus.ws.handlers.MessageStackHandler;
 
@@ -110,7 +111,7 @@ public class ObjectStorageDELETEOutboundHandler extends MessageStackHandler {
         httpResponse.setStatus(HttpResponseStatus.NO_CONTENT);
         // Need to add the CORS headers before the next line where we null out
         // the Message that contains the response fields we need.
-        ObjectStorageGateway.addCorsResponseHeaders(httpResponse);
+        OSGUtil.addCorsResponseHeaders(httpResponse);
         // Since a DELETE response, never include a body
         httpResponse.setMessage(null);
       }

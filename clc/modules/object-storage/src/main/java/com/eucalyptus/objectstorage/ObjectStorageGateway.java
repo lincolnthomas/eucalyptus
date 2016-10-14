@@ -492,7 +492,7 @@ public class ObjectStorageGateway implements ObjectStorageService {
       } catch (Exception ex) {
         LOG.debug("Failed to fire reporting event for OSG object creation", ex);
       }
-      OSGUtil.setCorsInfo(request, response, bucket.getBucketUuid());
+      OSGUtil.setCorsInfo(request, response, bucket);
       return response;
     } catch (AccessDeniedException e) {
       LOG.debug("CorrelationId: " + Contexts.lookup().getCorrelationId() + " Responding to client with AccessDeniedException");
@@ -907,7 +907,7 @@ public class ObjectStorageGateway implements ObjectStorageService {
       reply.setStatusMessage("No Content");
       bucket = ensureBucketExists(request.getBucket());
       if ( bucket != null) {
-        OSGUtil.setCorsInfo(request, reply, bucket.getBucketUuid());
+        OSGUtil.setCorsInfo(request, reply, bucket);
       }
       return reply;
     } catch (AccessDeniedException e) {
@@ -941,7 +941,7 @@ public class ObjectStorageGateway implements ObjectStorageService {
       }
       bucket = ensureBucketExists(request.getBucket());
       if ( bucket != null) {
-        OSGUtil.setCorsInfo(request, reply, bucket.getBucketUuid());
+        OSGUtil.setCorsInfo(request, reply, bucket);
       }
       return reply;
     } catch (AccessDeniedException e) {
@@ -1019,7 +1019,7 @@ public class ObjectStorageGateway implements ObjectStorageService {
       // Do nothing
       // reply.setContents(new ArrayList<ListEntry>());
     }
-    OSGUtil.setCorsInfo(request, reply, bucket.getBucketUuid());
+    OSGUtil.setCorsInfo(request, reply, bucket);
     return reply;
   }
 
@@ -1192,6 +1192,7 @@ public class ObjectStorageGateway implements ObjectStorageService {
       throw new NoSuchKeyException(request.getKey());
     }
 
+    final String originalBucketName = request.getBucket();
     request.setKey(objectEntity.getObjectUuid());
     request.setBucket(objectEntity.getBucket().getBucketUuid());
     GetObjectResponseType reply;
@@ -1248,7 +1249,7 @@ public class ObjectStorageGateway implements ObjectStorageService {
     populateStoredHeaders(reply, objectEntity.getStoredHeaders());
     reply.setResponseHeaderOverrides(request.getResponseHeaderOverrides());
     reply.setStatus(HttpResponseStatus.OK);
-    OSGUtil.setCorsInfo(request, reply, objectEntity.getBucket().getBucketUuid());
+    OSGUtil.setCorsInfo(request, reply, objectEntity.getBucket());
     return reply;
   }
 
@@ -1382,7 +1383,7 @@ public class ObjectStorageGateway implements ObjectStorageService {
       populateStoredHeaders(response, objectEntity.getStoredHeaders());
       response.setResponseHeaderOverrides(request.getResponseHeaderOverrides());
       response.setStatus(HttpResponseStatus.OK);
-      OSGUtil.setCorsInfo(request, response, objectEntity.getBucket().getBucketUuid());
+      OSGUtil.setCorsInfo(request, response, objectEntity.getBucket());
       return response;
     } catch (AccessDeniedException e) {
       LOG.debug("CorrelationId: " + Contexts.lookup().getCorrelationId() + " Responding to client with AccessDeniedException");
@@ -1477,7 +1478,7 @@ public class ObjectStorageGateway implements ObjectStorageService {
     reply.setSize(objectEntity.getSize());
     reply.setVersionId(objectEntity.getVersionId());
     reply.setEtag(objectEntity.geteTag());
-    OSGUtil.setCorsInfo(request, reply, objectEntity.getBucket().getBucketUuid());
+    OSGUtil.setCorsInfo(request, reply, objectEntity.getBucket());
     return reply;
   }
 
@@ -2262,95 +2263,6 @@ public class ObjectStorageGateway implements ObjectStorageService {
     
     return response;
   }
-
-  public static void addCorsResponseHeaders (MappingHttpResponse httpResponse) throws S3Exception {
-    LOG.debug("LPT In addCorsResponseHeaders (MappingHttpResponse)");
-
-    BaseMessage msg = (BaseMessage) httpResponse.getMessage();
-    addCorsResponseHeaders((HttpResponse) httpResponse, (BaseMessage) msg);
-  }
-  
-  public static void addCorsResponseHeaders (HttpResponse httpResponse, BaseMessage msg) throws S3Exception {
-    LOG.debug("LPT In addCorsResponseHeaders (HttpResponse, BaseMessage), msg class is " + msg.getClass());
-    if (msg != null && msg instanceof ObjectStorageResponseType) {
-      ObjectStorageResponseType response = (ObjectStorageResponseType) msg;
-      addCorsResponseHeaders(httpResponse, response.getOrigin(), response.getHttpMethod(), 
-          response.getBucket(), response.getBucketUuid());
-    } else if (msg instanceof ObjectStorageDataResponseType) {
-      ObjectStorageDataResponseType response = (ObjectStorageDataResponseType) msg;
-      addCorsResponseHeaders(httpResponse, response.getOrigin(), response.getHttpMethod(), 
-          response.getBucket(), response.getBucketUuid());
-    }
-  }
-  
-  public static void addCorsResponseHeaders (HttpResponse httpResponse, String origin, String httpMethod, String bucket, String bucketUuid) throws S3Exception {
-    LOG.debug("LPT In addCorsResponseHeaders (HttpResponse, origin, bucket, bucketUuid)");
-
-    LOG.debug("LPT Origin is: " + origin + ", Bucket (name or UUID) is: " + bucket + ", Bucket UUID is: " + bucketUuid);
-
-    if (origin != null && bucketUuid != null) {
-      List<CorsRule> corsRules;
-      try {
-        corsRules = BucketCorsManagers.getInstance().getCorsRules(bucketUuid);
-      } catch (S3Exception s3e) {
-        LOG.warn("Caught S3Exception while getting the CORS configuration for bucket <" + 
-            bucket + ">, CorrelationId: " + Contexts.lookup().getCorrelationId() + 
-            ", responding to client with: ", s3e);
-        throw s3e;
-      } catch (Exception ex) {
-        LOG.warn("Caught general exception while getting the CORS configuration for bucket <" + 
-            bucket + ">, CorrelationId: " + Contexts.lookup().getCorrelationId() + 
-            ", responding to client with 500 InternalError because of: ", ex);
-        throw new InternalErrorException(bucket, ex);
-      }
-
-      CorsMatchResult corsMatchResult = OSGUtil.matchCorsRules (corsRules, origin, httpMethod, null);
-      CorsRule corsRuleMatch = corsMatchResult.getCorsRuleMatch();
-
-      if (corsRuleMatch != null) {
-        httpResponse.setHeader(HttpHeaders.ACCESS_CONTROL_ALLOW_ORIGIN, corsMatchResult.getAnyOrigin() ? "*" : origin);
-
-        List<String> methodList = corsRuleMatch.getAllowedMethods();
-        if (methodList != null) {
-          // Convert list into "[method1, method2, ...]"
-          String methods = methodList.toString();
-          if (methods.length() > 2) {
-            // Chop off brackets
-            methods = methods.substring(1, methods.length()-1);
-            httpResponse.setHeader(HttpHeaders.ACCESS_CONTROL_ALLOW_METHODS, methods);
-          }
-        }
-        List<String> exposeHeadersList = corsRuleMatch.getExposeHeaders();
-        if (exposeHeadersList != null) {
-          // Convert list into "[exposeHeader1, exposeHeader2, ...]"
-          String exposeHeaders = exposeHeadersList.toString();
-          if (exposeHeaders.length() > 2) {
-            // Chop off brackets
-            exposeHeaders = exposeHeaders.substring(1, exposeHeaders.length()-1);
-            httpResponse.setHeader(HttpHeaders.ACCESS_CONTROL_EXPOSE_HEADERS, exposeHeaders);
-          }
-        }
-        if (corsRuleMatch.getMaxAgeSeconds() > 0) {
-          httpResponse.setHeader(HttpHeaders.ACCESS_CONTROL_MAX_AGE, corsRuleMatch.getMaxAgeSeconds());
-        }
-        // Set the "allow credentials" header to true only if the matching 
-        // CORS rule is NOT "any origin", otherwise don't set the header.
-        if (!corsMatchResult.getAnyOrigin()) {
-          httpResponse.setHeader(HttpHeaders.ACCESS_CONTROL_ALLOW_CREDENTIALS, "true");
-        }
-
-        // Match AWS behavior. Always contains these 3 header names. 
-        // It tells the user agent: If you cache this request+response, only
-        // give the cached response to a future request if all these headers 
-        // match the ones in the cached request. Otherwise, send the request 
-        // to the server, don't use the cached response.
-        httpResponse.setHeader(HttpHeaders.VARY, 
-            HttpHeaders.ORIGIN + ", " +
-                HttpHeaders.ACCESS_CONTROL_REQUEST_HEADERS + ", " +
-                HttpHeaders.ACCESS_CONTROL_REQUEST_METHOD);
-      }  // end if matching CORS rule
-    }  // end if origin exists
-  }  // end addCorsResponseHeaders()
 
   private Bucket getBucketAndCheckAuthorization(ObjectStorageRequestType request) throws S3Exception {
     logRequest(request);

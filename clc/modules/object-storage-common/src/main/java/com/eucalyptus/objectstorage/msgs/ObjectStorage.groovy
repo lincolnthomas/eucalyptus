@@ -66,19 +66,111 @@ import edu.ucsb.eucalyptus.msgs.ComponentProperty
 import edu.ucsb.eucalyptus.msgs.GroovyAddClassUUID
 import edu.ucsb.eucalyptus.msgs.StreamedBaseMessage
 
-@ComponentMessage(ObjectStorage.class)
-public class ObjectStorageResponseType extends ObjectStorageRequestType {
-  HttpResponseStatus status; //Most should be 200-ok, but for deletes etc it may be 204-No Content
-  protected String bucketUuid; //Used for looking up CORS rules by bucket UUID
+public interface ObjectStorageCommonResponseType {
+  // Only used for CORS convenience so far, but could be expanded.
 
+  public void setOrigin(String origin);
+  public String getOrigin();
+
+  public void setHttpMethod(String httpMethod);
+  public String getHttpMethod();
+
+  public void setBucketName(String bucketName);
+  public String getBucketName();
+
+  public void setBucketUuid(String bucketUuid);
+  public String getBucketUuid();
+
+  public void setAllowedOrigin(String allowedOrigin);
+  public String getAllowedOrigin();
+
+  public void setAllowedMethods(String allowedMethods);
+  public String getAllowedMethods();
+
+  public void setExposeHeaders(String exposeHeaders);
+  public String getExposeHeaders();
+
+  public void setMaxAgeSeconds(String maxAgeSeconds);
+  public String getMaxAgeSeconds();
+
+  public void setAllowCredentials(String allowCredentials);
+  public String getAllowCredentials();
+
+  public void setVary(String vary);
+  public String getVary();
+
+}
+
+@ComponentMessage(ObjectStorage.class)
+public class ObjectStorageResponseType extends ObjectStorageRequestType
+implements ObjectStorageCommonResponseType {
+  HttpResponseStatus status; //Most should be 200-ok, but for deletes etc it may be 204-No Content
+  protected String bucketName; //Used for user-facing messages
+  protected String bucketUuid; //Used for looking up CORS rules by bucket UUID
+  // All below are CORS-specific
+  protected String allowedOrigin;
+  protected String allowedMethods;
+  protected String exposeHeaders;
+  protected String maxAgeSeconds;
+  protected String allowCredentials;
+  protected String vary;
+  
   def ObjectStorageResponseType() {}
 
-  public String getBucketUuid() {
-    return bucketUuid;
+  public void setBucketName(String bucketName) {
+    this.bucketName = bucketName;
+  }
+  public String getBucketName() {
+    return bucketName;
   }
 
   public void setBucketUuid(String bucketUuid) {
     this.bucketUuid = bucketUuid;
+  }
+  public String getBucketUuid() {
+    return bucketUuid;
+  }
+
+  public void setAllowedOrigin(String allowedOrigin) {
+    this.allowedOrigin = allowedOrigin;
+  }
+  public String getAllowedOrigin() {
+    return allowedOrigin;
+  }
+
+  public void setAllowedMethods(String allowedMethods) {
+    this.allowedMethods = allowedMethods;
+  }
+  public String getAllowedMethods() {
+    return allowedMethods;
+  }
+
+  public void setExposeHeaders(String exposeHeaders) {
+    this.exposeHeaders = exposeHeaders;
+  }
+  public String getExposeHeaders() {
+    return exposeHeaders;
+  }
+
+  public void setMaxAgeSeconds(String maxAgeSeconds) {
+    this.maxAgeSeconds = maxAgeSeconds;
+  }
+  public String getMaxAgeSeconds() {
+    return maxAgeSeconds;
+  }
+
+  public void setAllowCredentials(String allowCredentials) {
+    this.allowCredentials = allowCredentials;
+  }
+  public String getAllowCredentials() {
+    return allowCredentials;
+  }
+
+  public void setVary(String vary) {
+    this.vary = vary;
+  }
+  public String getVary() {
+    return vary;
   }
 }
 
@@ -93,13 +185,11 @@ public class ObjectStorageStreamingResponseType extends StreamedBaseMessage {
 public class ObjectStorageRequestType extends BaseMessage {
   protected Date timeStamp;
   BucketLogData logData;
-  // This is sometimes the bucket name, sometimes the bucket UUID.
-  //TODO: Stop doing that! Make separate fields.
   protected String bucket;
   protected String key;
   protected String origin;
   protected String httpMethod;
-  
+
   public ObjectStorageRequestType() {}
 
   public ObjectStorageRequestType(String bucket, String key) {
@@ -175,7 +265,8 @@ public class ObjectStorageDataRequestType extends ObjectStorageRequestType {
 
 }
 
-public class ObjectStorageDataResponseType extends ObjectStorageStreamingResponseType {
+public class ObjectStorageDataResponseType extends ObjectStorageStreamingResponseType
+implements ObjectStorageCommonResponseType {
   String etag;
   Date lastModified;
   Long size;
@@ -190,8 +281,63 @@ public class ObjectStorageDataResponseType extends ObjectStorageStreamingRespons
   String expires;
   String origin;
   String httpMethod;
+  // This "bucket" sometimes holds the bucket name, and sometimes holds the bucket UUID,
+  // depending on the code using it.
+  // TODO: Stop doing that! Overloads its meaning.
+  // Until fixed, added "bucketName" which always holds the bucket name.
+  // (bucketUuid is always the UUID)
   String bucket;
-  String bucketUuid;
+  String bucketName; //Used for user-facing messages
+  String bucketUuid; //Used for looking up CORS rules by bucket UUID
+  // All below are CORS-specific
+  String allowedOrigin;
+  String allowedMethods;
+  String exposeHeaders;
+  String maxAgeSeconds;
+  String allowCredentials;
+  String vary;
+
+  public void setAllowedOrigin(String allowedOrigin) {
+    this.allowedOrigin = allowedOrigin;
+  }
+  public String getAllowedOrigin() {
+    return allowedOrigin;
+  }
+
+  public void setAllowedMethods(String allowedMethods) {
+    this.allowedMethods = allowedMethods;
+  }
+  public String getAllowedMethods() {
+    return allowedMethods;
+  }
+
+  public void setExposeHeaders(String exposeHeaders) {
+    this.exposeHeaders = exposeHeaders;
+  }
+  public String getExposeHeaders() {
+    return exposeHeaders;
+  }
+
+  public void setMaxAgeSeconds(String maxAgeSeconds) {
+    this.maxAgeSeconds = maxAgeSeconds;
+  }
+  public String getMaxAgeSeconds() {
+    return maxAgeSeconds;
+  }
+
+  public void setAllowCredentials(String allowCredentials) {
+    this.allowCredentials = allowCredentials;
+  }
+  public String getAllowCredentials() {
+    return allowCredentials;
+  }
+
+  public void setVary(String vary) {
+    this.vary = vary;
+  }
+  public String getVary() {
+    return vary;
+  }
 }
 
 public class ObjectStorageDataGetRequestType extends ObjectStorageDataRequestType {

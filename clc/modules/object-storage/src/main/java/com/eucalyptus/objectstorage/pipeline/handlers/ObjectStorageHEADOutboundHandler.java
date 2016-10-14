@@ -129,7 +129,7 @@ public class ObjectStorageHEADOutboundHandler extends MessageStackHandler {
       }
       // Need to add the CORS headers before the next line where we null out
       // the Message that contains the response fields we need.
-      ObjectStorageGateway.addCorsResponseHeaders(httpResponse);
+      OSGUtil.addCorsResponseHeaders(httpResponse);
       // Since a HEAD response, never include a body
       httpResponse.setMessage(null);
     }

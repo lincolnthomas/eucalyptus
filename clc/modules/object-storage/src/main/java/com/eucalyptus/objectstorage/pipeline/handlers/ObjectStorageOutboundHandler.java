@@ -92,6 +92,7 @@ import com.eucalyptus.objectstorage.msgs.SetBucketVersioningStatusResponseType;
 import com.eucalyptus.objectstorage.msgs.SetObjectAccessControlPolicyResponseType;
 import com.eucalyptus.objectstorage.msgs.UploadPartResponseType;
 import com.eucalyptus.objectstorage.util.ObjectStorageProperties;
+import com.eucalyptus.objectstorage.util.OSGUtil;
 import com.eucalyptus.storage.common.DateFormatter;
 import com.eucalyptus.ws.handlers.MessageStackHandler;
 
@@ -136,7 +137,7 @@ public class ObjectStorageOutboundHandler extends MessageStackHandler {
       // httpResponse object later in this code (like 
       // ObjectStorageGETOutboundHandler does), or that overrides any of 
       // the fields we set here.
-      ObjectStorageGateway.addCorsResponseHeaders(httpResponse);
+      OSGUtil.addCorsResponseHeaders(httpResponse);
 
       // Ordering if-else conditions from most to least restrictive i.e. narrow to broad filters
       if (msg instanceof PostObjectResponseType) {
