@@ -91,7 +91,6 @@ import com.eucalyptus.crypto.Ciphers;
 import com.eucalyptus.crypto.Crypto;
 import com.eucalyptus.http.MappingHttpRequest;
 import com.eucalyptus.http.MappingHttpResponse;
-import com.eucalyptus.objectstorage.BucketCorsManagers;
 import com.eucalyptus.objectstorage.ObjectStorage;
 import com.eucalyptus.objectstorage.entities.Bucket;
 import com.eucalyptus.objectstorage.exceptions.ObjectStorageException;
@@ -103,7 +102,6 @@ import com.eucalyptus.objectstorage.msgs.ObjectStorageCommonResponseType;
 import com.eucalyptus.objectstorage.msgs.ObjectStorageDataResponseType;
 import com.eucalyptus.objectstorage.msgs.ObjectStorageErrorMessageType;
 import com.eucalyptus.objectstorage.msgs.ObjectStorageRequestType;
-import com.eucalyptus.objectstorage.msgs.ObjectStorageResponseType;
 import com.eucalyptus.storage.msgs.s3.CorsMatchResult;
 import com.eucalyptus.storage.msgs.s3.CorsRule;
 import com.eucalyptus.util.EucalyptusCloudException;
@@ -119,6 +117,10 @@ import com.google.common.collect.Iterables;
 import edu.ucsb.eucalyptus.msgs.BaseMessage;
 import edu.ucsb.eucalyptus.msgs.EucalyptusErrorMessageType;
 import edu.ucsb.eucalyptus.msgs.ExceptionResponseType;
+
+import com.eucalyptus.objectstorage.BucketCorsManagers;
+import com.eucalyptus.objectstorage.metadata.BucketCorsManager;
+import com.eucalyptus.objectstorage.metadata.DbBucketCorsManagerImpl;
 
 public class OSGUtil {
   private static Logger LOG = Logger.getLogger(OSGUtil.class);
@@ -305,12 +307,12 @@ public class OSGUtil {
   }  
 
   public static void setCorsInfo(ObjectStorageRequestType request, ObjectStorageCommonResponseType response, Bucket bucket)
-      throws S3Exception, InternalErrorException {
+      throws S3Exception {
     OSGUtil.setCorsInfo(request, response, bucket.getBucketName(), bucket.getBucketUuid());
   }
    
   private static void setCorsInfo(ObjectStorageRequestType request, ObjectStorageCommonResponseType response, String bucketName, String bucketUuid) 
-      throws S3Exception, InternalErrorException {
+      throws S3Exception {
     // NOTE: The request.getBucket() might be the bucket name, or might be the UUID, or might not be populated,
     // depending on how it's already used by the caller. 
     // So, we pass in the bucket name explicitly, so as not to change the original request field.
