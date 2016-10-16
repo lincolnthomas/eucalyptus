@@ -86,16 +86,22 @@ import org.xbill.DNS.TextParseException;
 
 import com.eucalyptus.component.ComponentId;
 import com.eucalyptus.component.auth.SystemCredentials;
+import com.eucalyptus.context.Contexts;
 import com.eucalyptus.crypto.Ciphers;
 import com.eucalyptus.crypto.Crypto;
 import com.eucalyptus.http.MappingHttpRequest;
+import com.eucalyptus.http.MappingHttpResponse;
 import com.eucalyptus.objectstorage.ObjectStorage;
+import com.eucalyptus.objectstorage.entities.Bucket;
 import com.eucalyptus.objectstorage.exceptions.ObjectStorageException;
+import com.eucalyptus.objectstorage.exceptions.s3.InternalErrorException;
 import com.eucalyptus.objectstorage.exceptions.s3.InvalidAddressingHeaderException;
 import com.eucalyptus.objectstorage.exceptions.s3.S3Exception;
 import com.eucalyptus.objectstorage.msgs.HeadObjectResponseType;
+import com.eucalyptus.objectstorage.msgs.ObjectStorageCommonResponseType;
 import com.eucalyptus.objectstorage.msgs.ObjectStorageDataResponseType;
 import com.eucalyptus.objectstorage.msgs.ObjectStorageErrorMessageType;
+import com.eucalyptus.objectstorage.msgs.ObjectStorageRequestType;
 import com.eucalyptus.storage.msgs.s3.CorsMatchResult;
 import com.eucalyptus.storage.msgs.s3.CorsRule;
 import com.eucalyptus.util.EucalyptusCloudException;
@@ -111,6 +117,10 @@ import com.google.common.collect.Iterables;
 import edu.ucsb.eucalyptus.msgs.BaseMessage;
 import edu.ucsb.eucalyptus.msgs.EucalyptusErrorMessageType;
 import edu.ucsb.eucalyptus.msgs.ExceptionResponseType;
+
+//import com.eucalyptus.objectstorage.BucketCorsManagers;
+//import com.eucalyptus.objectstorage.metadata.BucketCorsManager;
+//import com.eucalyptus.objectstorage.metadata.DbBucketCorsManagerImpl;
 
 public class OSGUtil {
   private static Logger LOG = Logger.getLogger(OSGUtil.class);
@@ -161,7 +171,15 @@ public class OSGUtil {
   }
 
   public static CorsMatchResult matchCorsRules (List<CorsRule> corsRules, String requestOrigin, 
+      String requestMethod) {
+    // All S3 operations except Preflight (OPTIONS) requests call matchCorsRules with this signature,
+    // because "Access-Control-Request-Headers" are only present (if at all) in preflight requests.
+    return matchCorsRules(corsRules, requestOrigin, requestMethod, null);
+  }
+
+  public static CorsMatchResult matchCorsRules (List<CorsRule> corsRules, String requestOrigin, 
       String requestMethod, List<String> requestHeaders) {
+    // Only Preflight (OPTIONS) requests call matchCorsRules with this signature.
     CorsMatchResult corsMatchResult = new CorsMatchResult();
     boolean found = false;
     boolean anyOrigin = false;
@@ -287,6 +305,170 @@ public class OSGUtil {
     }
     return corsMatchResult;
   }  
+
+  public static void setCorsInfo(ObjectStorageRequestType request, ObjectStorageCommonResponseType response, Bucket bucket)
+      throws S3Exception {
+    OSGUtil.setCorsInfo(request, response, bucket.getBucketName(), bucket.getBucketUuid());
+  }
+   
+  private static void setCorsInfo(ObjectStorageRequestType request, ObjectStorageCommonResponseType response, String bucketName, String bucketUuid) 
+      throws S3Exception {
+    // NOTE: The request.getBucket() might be the bucket name, or might be the UUID, or might not be populated,
+    // depending on how it's been set by the caller. So, we pass in the bucket name separately.
+    // We need the bucket name for user-facing error messages, and we need the UUID to look up 
+    // bucket entities in the DB.
+    
+    LOG.debug("LPT in setCorsInfo");
+
+    if (request == null) {
+      throw new InternalErrorException("setCorsInfo called with a null request, bucket " + bucketName);
+    }
+    
+    if (response == null) {
+      throw new InternalErrorException("setCorsInfo called with a null response, bucket " + bucketName);
+    }
+    
+    // If it stays null, tells addCorsResponseHeaders not to add any headers
+    response.setAllowedOrigin(null);
+    
+    if (bucketUuid == null || bucketUuid.isEmpty()) {
+      LOG.debug("LPT No bucket UUID, so no CORS headers");
+      return;
+    } else {
+      response.setBucketUuid(bucketUuid);
+    }
+    
+    String origin = request.getOrigin();
+    if (origin == null || origin.isEmpty()) {
+      LOG.debug("LPT No origin header, so no CORS headers");
+      return;
+    } else {
+      response.setOrigin(origin);
+    }
+    
+    String httpMethod = request.getHttpMethod();
+    if (httpMethod == null || httpMethod.isEmpty()) {
+      LOG.debug("LPT No method header, so no CORS headers");
+      return;
+    } else {
+      response.setHttpMethod(httpMethod);
+    }
+    
+    // We don't care if the bucket name is null
+    response.setBucketName(bucketName);
+
+    List<CorsRule> corsRules;
+    try {
+      corsRules = com.eucalyptus.objectstorage.BucketCorsManagers.getInstance().getCorsRules(bucketUuid);
+    } catch (Exception ex) {
+      LOG.warn("Caught general exception while getting the CORS configuration for bucket <" + 
+          bucketName + ">, CorrelationId: " + Contexts.lookup().getCorrelationId() + 
+          ", responding to client with 500 InternalError because of: ", ex);
+      throw new InternalErrorException("Bucket " + bucketName, ex);
+    }
+
+    CorsMatchResult corsMatchResult = OSGUtil.matchCorsRules (corsRules, origin, httpMethod);
+    CorsRule corsRuleMatch = corsMatchResult.getCorsRuleMatch();
+
+    if (corsRuleMatch != null) {
+      response.setAllowedOrigin(corsMatchResult.getAnyOrigin() ? "*" : origin);
+
+      List<String> methodList = corsRuleMatch.getAllowedMethods();
+      if (methodList != null) {
+        // Convert list into "[method1, method2, ...]"
+        String methods = methodList.toString();
+        if (methods.length() > 2) {
+          // Chop off brackets
+          methods = methods.substring(1, methods.length()-1);
+          response.setAllowedMethods(methods);
+        }
+      } else {
+        response.setAllowedMethods(null);
+      }
+
+      List<String> exposeHeadersList = corsRuleMatch.getExposeHeaders();
+      if (exposeHeadersList != null) {
+        // Convert list into "[exposeHeader1, exposeHeader2, ...]"
+        String exposeHeaders = exposeHeadersList.toString();
+        if (exposeHeaders.length() > 2) {
+          // Chop off brackets
+          exposeHeaders = exposeHeaders.substring(1, exposeHeaders.length()-1);
+          response.setExposeHeaders(exposeHeaders);
+        }
+      } else {
+        response.setExposeHeaders(null);
+      }
+
+      if (corsRuleMatch.getMaxAgeSeconds() > 0) {
+        response.setMaxAgeSeconds(String.valueOf(corsRuleMatch.getMaxAgeSeconds()));
+      } else {
+        response.setMaxAgeSeconds(null);
+      }
+
+      // Set the "allow credentials" header to true only if the matching 
+      // CORS rule is NOT "any origin", otherwise don't set the header.
+      if (!corsMatchResult.getAnyOrigin()) {
+        response.setAllowCredentials("true");
+      } else {
+        // If not true, don't add the header
+        response.setAllowCredentials(null);
+      }
+
+      // Set the Vary header only if we have any other CORS headers.
+      // Check the allowed origin, because if we have any CORS headers, 
+      // we will have that one. 
+      // Match AWS behavior: Always contains these 3 header names. 
+      // It tells the user agent: If you cache this request+response, only
+      // give the cached response to a future request if all these headers 
+      // match the ones in the cached request. Otherwise, send the request 
+      // to the server, don't use the cached response.
+      if (response.getAllowedOrigin() != null) {
+        response.setVary(HttpHeaders.Names.ORIGIN + ", " +
+            HttpHeaders.Names.ACCESS_CONTROL_REQUEST_HEADERS + ", " +
+            HttpHeaders.Names.ACCESS_CONTROL_REQUEST_METHOD);
+      } else {
+        response.setVary(null);
+      }
+    } else { // end if matching CORS rule
+      LOG.debug("LPT Has origin but no matching CORS rule, therefore no CORS info stored");
+    }
+  }
+
+  public static void addCorsResponseHeaders (MappingHttpResponse mappingHttpResponse) throws S3Exception {
+    LOG.debug("LPT In addCorsResponseHeaders (MappingHttpResponse)");
+
+    if (mappingHttpResponse != null &&
+        mappingHttpResponse.getMessage() instanceof ObjectStorageCommonResponseType) 
+    {
+      addCorsResponseHeaders((HttpResponse) mappingHttpResponse, (ObjectStorageCommonResponseType) mappingHttpResponse.getMessage());
+    }
+  }
+  
+  public static void addCorsResponseHeaders (HttpResponse httpResponse, ObjectStorageCommonResponseType response) throws S3Exception {
+    LOG.debug("LPT In addCorsResponseHeaders (HttpResponse, ObjectStorageCommonResponseType)");
+
+    if (response.getAllowedOrigin() == null) {
+      // If no allowed origin header then we know there are no CORS headers at all
+      return;
+    }
+    
+    httpResponse.setHeader(HttpHeaders.Names.ACCESS_CONTROL_ALLOW_ORIGIN, response.getAllowedOrigin());
+    if (response.getAllowedMethods() != null) {
+      httpResponse.setHeader(HttpHeaders.Names.ACCESS_CONTROL_ALLOW_METHODS, response.getAllowedMethods());
+    }
+    if (response.getExposeHeaders() != null) {
+      httpResponse.setHeader(HttpHeaders.Names.ACCESS_CONTROL_EXPOSE_HEADERS, response.getExposeHeaders());
+    }
+    if (response.getMaxAgeSeconds() != null) {
+      httpResponse.setHeader(HttpHeaders.Names.ACCESS_CONTROL_MAX_AGE, response.getMaxAgeSeconds());
+    }
+    if (response.getAllowCredentials() != null) {
+      httpResponse.setHeader(HttpHeaders.Names.ACCESS_CONTROL_ALLOW_CREDENTIALS, response.getAllowCredentials());
+    }
+    if (response.getVary() != null) {
+      httpResponse.setHeader(HttpHeaders.Names.VARY, response.getVary());
+    }
+  }  // end addCorsResponseHeaders()
 
   public static String[] getTarget(String operationPath) {
     operationPath = operationPath.replaceAll("^/{2,}", "/"); // If its in the form "/////bucket/key", change it to "/bucket/key"
