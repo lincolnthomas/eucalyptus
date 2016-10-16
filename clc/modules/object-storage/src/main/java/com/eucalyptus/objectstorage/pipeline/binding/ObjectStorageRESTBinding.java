@@ -1622,7 +1622,7 @@ public abstract class ObjectStorageRESTBinding extends RestfulMarshallingHandler
         String[] requestHeadersArrayFromRequest = requestHeadersFromRequest.split(",");
         List<String> requestHeaders = new ArrayList<String>();
         for (int idx = 0; idx < requestHeadersArrayFromRequest.length; idx++) {
-          requestHeaders.add(requestHeadersArrayFromRequest[idx]);
+          requestHeaders.add(requestHeadersArrayFromRequest[idx].trim());
         }
         preflightRequest.setRequestHeaders(requestHeaders);
       }

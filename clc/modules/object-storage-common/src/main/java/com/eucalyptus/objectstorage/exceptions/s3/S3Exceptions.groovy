@@ -690,6 +690,12 @@ class MalformedXMLException extends S3Exception {
     this();
     this.resource = resource;
   }
+
+  def MalformedXMLException(String resource, String message) {
+    this();
+    this.resource = resource;
+    this.message = message;
+  }
 }
 
 class MaxMessageLengthExceededException extends S3Exception {

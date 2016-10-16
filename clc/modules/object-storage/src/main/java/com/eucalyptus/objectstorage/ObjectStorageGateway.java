@@ -2114,32 +2114,34 @@ public class ObjectStorageGateway implements ObjectStorageService {
       if (corsConfig != null && 
           corsConfig.getRules() != null &&
           corsConfig.getRules().size() > MAX_CORS_RULES) {
-        MalformedXMLException ex = new MalformedXMLException(bucketName);
-        ex.setMessage("More than " + MAX_CORS_RULES + " rules in CORS configuration not allowed");
-        throw ex;
+        throw new MalformedXMLException(bucketName, "More than " + MAX_CORS_RULES + " rules in CORS configuration not allowed");
       }
 
       // Make sure names are unique and <= 255 chars.
       HashSet<String> uniqueRuleIds = new HashSet<String>();
-      String ruleId = null;
       InvalidArgumentException invArgEx = null;
       
       for (CorsRule rule : corsConfig.getRules()) {
         if (rule == null) {
-          break;
+          throw new InternalErrorException("Null rule found in CORS config set request");
         }
-        ruleId = rule.getId();
-        if (ruleId != null && ruleId.length() > 0) {
+        String ruleId = (rule.getId() == null ? "" : rule.getId());
+        if (rule.getAllowedOrigins() == null || rule.getAllowedOrigins().isEmpty()) {
+          throw new InvalidArgumentException(ruleId, "Invalid CORS configuration: At least one AllowedOrigin is required");
+        }
+        if (rule.getAllowedMethods() == null || rule.getAllowedMethods().isEmpty()) {
+          throw new InvalidArgumentException(ruleId, "Invalid CORS configuration: At least one AllowedMethod is required");
+        }
+        if (rule.getMaxAgeSeconds() < 0) {
+          throw new InvalidArgumentException(ruleId, "Invalid CORS configuration: MaxAgeSeconds cannot be negative");
+        }
+        if (ruleId.length() > 0) {
           if (ruleId.length() > 255) {
-            invArgEx = new InvalidArgumentException(ruleId);
-            invArgEx.setMessage("CORS RuleId > 255 characters");
-            throw invArgEx;
+            throw new InvalidArgumentException(ruleId, "Invalid CORS configuration: CORS RuleId > 255 characters");
           }
           boolean unique = uniqueRuleIds.add(ruleId);
           if (!unique) {
-            invArgEx = new InvalidArgumentException(ruleId);
-            invArgEx.setMessage("RuleId must be unique. Saw this rule more than once: " + ruleId);
-            throw invArgEx;
+            throw new InvalidArgumentException(ruleId, "Invalid CORS configuration: RuleId must be unique. Saw this rule more than once: " + ruleId);
             
           }
         }
@@ -2216,23 +2218,20 @@ public class ObjectStorageGateway implements ObjectStorageService {
 
       String requestOrigin = preflightRequest.getOrigin();
       if (requestOrigin == null || requestOrigin.isEmpty()) {
-        CorsPreflightNoOriginException s3e = new CorsPreflightNoOriginException();
-        throw s3e;
+        throw new CorsPreflightNoOriginException();
       }
 
       String requestMethod = preflightRequest.getMethod();
       if (requestMethod == null ||
           !AllowedCorsMethods.methodList.contains(HttpMethod.valueOf(requestMethod))) {
-        CorsPreflightInvalidMethodException s3e = new CorsPreflightInvalidMethodException(requestMethod);
-        throw s3e;
+        throw new CorsPreflightInvalidMethodException(requestMethod);
       }
 
       List<CorsRule> corsRules = BucketCorsManagers.getInstance().getCorsRules(bucket.getBucketUuid());
 
       if (corsRules == null || corsRules.isEmpty()) {
-        CorsPreflightNoConfigException s3e = new CorsPreflightNoConfigException(requestMethod,
+        throw new CorsPreflightNoConfigException(requestMethod,
             key == null ? "BUCKET" : "OBJECT");
-        throw s3e;     
       }
 
       List<String> requestHeaders = preflightRequest.getRequestHeaders();
@@ -2241,9 +2240,8 @@ public class ObjectStorageGateway implements ObjectStorageService {
       CorsRule corsRuleMatch = corsMatchResult.getCorsRuleMatch();
       if (corsRuleMatch == null) {
         // No rule matched the request
-        CorsPreflightNotAllowedException s3e = new CorsPreflightNotAllowedException(requestMethod,
+        throw new CorsPreflightNotAllowedException(requestMethod,
             key == null ? "BUCKET" : "OBJECT");
-        throw s3e;     
       }
       
       // We found a match, fill in the response fields

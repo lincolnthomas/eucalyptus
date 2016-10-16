@@ -169,7 +169,15 @@ public class OSGUtil {
   }
 
   public static CorsMatchResult matchCorsRules (List<CorsRule> corsRules, String requestOrigin, 
+      String requestMethod) {
+    // All S3 operations except Preflight (OPTIONS) requests call matchCorsRules with this signature,
+    // because "Access-Control-Request-Headers" are only present (if at all) in preflight requests.
+    return matchCorsRules(corsRules, requestOrigin, requestMethod, null);
+  }
+
+  public static CorsMatchResult matchCorsRules (List<CorsRule> corsRules, String requestOrigin, 
       String requestMethod, List<String> requestHeaders) {
+    // Only Preflight (OPTIONS) requests call matchCorsRules with this signature.
     CorsMatchResult corsMatchResult = new CorsMatchResult();
     boolean found = false;
     boolean anyOrigin = false;
@@ -365,7 +373,7 @@ public class OSGUtil {
         throw new InternalErrorException("Bucket " + bucketName, ex);
       }
 
-      CorsMatchResult corsMatchResult = OSGUtil.matchCorsRules (corsRules, origin, httpMethod, null);
+      CorsMatchResult corsMatchResult = OSGUtil.matchCorsRules (corsRules, origin, httpMethod);
       CorsRule corsRuleMatch = corsMatchResult.getCorsRuleMatch();
 
       if (corsRuleMatch != null) {
