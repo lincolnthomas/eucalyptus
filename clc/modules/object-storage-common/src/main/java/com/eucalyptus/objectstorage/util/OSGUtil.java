@@ -91,6 +91,7 @@ import com.eucalyptus.crypto.Ciphers;
 import com.eucalyptus.crypto.Crypto;
 import com.eucalyptus.http.MappingHttpRequest;
 import com.eucalyptus.http.MappingHttpResponse;
+import com.eucalyptus.objectstorage.BucketCorsManagers;
 import com.eucalyptus.objectstorage.ObjectStorage;
 import com.eucalyptus.objectstorage.entities.Bucket;
 import com.eucalyptus.objectstorage.exceptions.ObjectStorageException;
@@ -117,10 +118,6 @@ import com.google.common.collect.Iterables;
 import edu.ucsb.eucalyptus.msgs.BaseMessage;
 import edu.ucsb.eucalyptus.msgs.EucalyptusErrorMessageType;
 import edu.ucsb.eucalyptus.msgs.ExceptionResponseType;
-
-//import com.eucalyptus.objectstorage.BucketCorsManagers;
-//import com.eucalyptus.objectstorage.metadata.BucketCorsManager;
-//import com.eucalyptus.objectstorage.metadata.DbBucketCorsManagerImpl;
 
 public class OSGUtil {
   private static Logger LOG = Logger.getLogger(OSGUtil.class);
@@ -359,7 +356,7 @@ public class OSGUtil {
 
     List<CorsRule> corsRules;
     try {
-      corsRules = com.eucalyptus.objectstorage.BucketCorsManagers.getInstance().getCorsRules(bucketUuid);
+      corsRules = BucketCorsManagers.getInstance().getCorsRules(bucketUuid);
     } catch (Exception ex) {
       LOG.warn("Caught general exception while getting the CORS configuration for bucket <" + 
           bucketName + ">, CorrelationId: " + Contexts.lookup().getCorrelationId() + 
