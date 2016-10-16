@@ -151,7 +151,7 @@ public class DbBucketCorsManagerImpl implements BucketCorsManager {
   }
 
   @Override
-  public List<com.eucalyptus.storage.msgs.s3.CorsRule> getCorsRules(@Nonnull String bucketUuid) throws Exception {
+  public List<com.eucalyptus.storage.msgs.s3.CorsRule> getCorsRules(@Nonnull String bucketUuid) {
 
     List<CorsRule> rulesFromDb = null;
 
