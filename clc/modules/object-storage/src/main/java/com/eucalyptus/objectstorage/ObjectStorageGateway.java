@@ -162,6 +162,7 @@ import com.eucalyptus.objectstorage.msgs.ListPartsResponseType;
 import com.eucalyptus.objectstorage.msgs.ListPartsType;
 import com.eucalyptus.objectstorage.msgs.ListVersionsResponseType;
 import com.eucalyptus.objectstorage.msgs.ListVersionsType;
+import com.eucalyptus.objectstorage.msgs.ObjectStorageCommonResponseType;
 import com.eucalyptus.objectstorage.msgs.ObjectStorageDataResponseType;
 import com.eucalyptus.objectstorage.msgs.ObjectStorageRequestType;
 import com.eucalyptus.objectstorage.msgs.PostObjectResponseType;
@@ -289,7 +290,7 @@ public class ObjectStorageGateway implements ObjectStorageService {
         ospClient.start();
       }
     } catch (S3Exception ex) {
-      LOG.error("Error starting storage backend: " + ex);
+      LOG.error("Error starting storage backend",ex);
     }
     
     // The ospClient should be configured by now.
@@ -489,7 +490,7 @@ public class ObjectStorageGateway implements ObjectStorageService {
       } catch (Exception ex) {
         LOG.debug("Failed to fire reporting event for OSG object creation", ex);
       }
-      OSGUtil.setCorsInfo(request, response, bucket);
+      setCorsInfo(request, response, bucket);
       return response;
     } catch (AccessDeniedException e) {
       LOG.debug("CorrelationId: " + Contexts.lookup().getCorrelationId() + " Responding to client with AccessDeniedException");
@@ -588,7 +589,7 @@ public class ObjectStorageGateway implements ObjectStorageService {
     reply.setStatus(HttpResponseStatus.OK);
     reply.setStatusMessage("OK");
     reply.setTimestamp(new Date());
-    OSGUtil.setCorsInfo(request, reply, bucket);
+    setCorsInfo(request, reply, bucket);
     return reply;
   }
 
@@ -813,7 +814,7 @@ public class ObjectStorageGateway implements ObjectStorageService {
       } catch (Exception e) {
         throw new InternalErrorException(request.getBucket() + "/?acl");
       }
-      OSGUtil.setCorsInfo(request, reply, bucket);
+      setCorsInfo(request, reply, bucket);
       return reply;
     } else {
       throw new AccessDeniedException(request.getBucket());
@@ -897,7 +898,7 @@ public class ObjectStorageGateway implements ObjectStorageService {
     ObjectEntity objectEntity = null;
     Bucket bucket = null;
     try {
-      //LPT This throws exception on anonymous access to an object, must be handled separately. TBD.
+      //TODO This throws exception on anonymous access to an object, must be handled separately. TBD.
       objectEntity = getObjectEntityAndCheckPermissions(request, null);
     } catch (NoSuchKeyException e) {
       // Nothing to do, object doesn't exist. Return 204 per S3 spec
@@ -906,7 +907,7 @@ public class ObjectStorageGateway implements ObjectStorageService {
       reply.setStatusMessage("No Content");
       bucket = ensureBucketExists(request.getBucket());
       if ( bucket != null) {
-        OSGUtil.setCorsInfo(request, reply, bucket);
+        setCorsInfo(request, reply, bucket);
       }
       return reply;
     } catch (AccessDeniedException e) {
@@ -940,7 +941,7 @@ public class ObjectStorageGateway implements ObjectStorageService {
       }
       bucket = ensureBucketExists(request.getBucket());
       if ( bucket != null) {
-        OSGUtil.setCorsInfo(request, reply, bucket);
+        setCorsInfo(request, reply, bucket);
       }
       return reply;
     } catch (AccessDeniedException e) {
@@ -1018,7 +1019,7 @@ public class ObjectStorageGateway implements ObjectStorageService {
       // Do nothing
       // reply.setContents(new ArrayList<ListEntry>());
     }
-    OSGUtil.setCorsInfo(request, reply, bucket);
+    setCorsInfo(request, reply, bucket);
     return reply;
   }
 
@@ -1041,7 +1042,7 @@ public class ObjectStorageGateway implements ObjectStorageService {
     } catch (Exception e) {
       throw new InternalErrorException(request.getBucket() + "/" + request.getKey());
     }
-    OSGUtil.setCorsInfo(request, reply, objectEntity.getBucket());
+    setCorsInfo(request, reply, objectEntity.getBucket());
     return reply;
   }
 
@@ -1109,7 +1110,7 @@ public class ObjectStorageGateway implements ObjectStorageService {
         BucketMetadataManagers.getInstance().setAcp(bucket, fullPolicy);
         SetBucketAccessControlPolicyResponseType reply = request.getReply();
         reply.setBucket(request.getBucket());
-        OSGUtil.setCorsInfo(request, reply, bucket);
+        setCorsInfo(request, reply, bucket);
         return reply;
       } catch (Exception e) {
         LOG.error("Transaction error updating bucket ACL for bucket " + request.getBucket(), e);
@@ -1169,7 +1170,7 @@ public class ObjectStorageGateway implements ObjectStorageService {
         reply.setVersionId(objectEntity.getVersionId());
       else
         reply.setVersionId(null);
-      OSGUtil.setCorsInfo(request, reply, objectEntity.getBucket());
+      setCorsInfo(request, reply, objectEntity.getBucket());
       return reply;
     } catch (Exception e) {
       LOG.error("Internal error during PUT object?acl for object " + request.getBucket() + "/" + request.getKey(), e);
@@ -1250,7 +1251,7 @@ public class ObjectStorageGateway implements ObjectStorageService {
     populateStoredHeaders(reply, objectEntity.getStoredHeaders());
     reply.setResponseHeaderOverrides(request.getResponseHeaderOverrides());
     reply.setStatus(HttpResponseStatus.OK);
-    OSGUtil.setCorsInfo(request, reply, objectEntity.getBucket());
+    setCorsInfo(request, reply, objectEntity.getBucket());
     return reply;
   }
 
@@ -1384,7 +1385,7 @@ public class ObjectStorageGateway implements ObjectStorageService {
       populateStoredHeaders(response, objectEntity.getStoredHeaders());
       response.setResponseHeaderOverrides(request.getResponseHeaderOverrides());
       response.setStatus(HttpResponseStatus.OK);
-      OSGUtil.setCorsInfo(request, response, objectEntity.getBucket());
+      setCorsInfo(request, response, objectEntity.getBucket());
       return response;
     } catch (AccessDeniedException e) {
       LOG.debug("CorrelationId: " + Contexts.lookup().getCorrelationId() + " Responding to client with AccessDeniedException");
@@ -1479,7 +1480,7 @@ public class ObjectStorageGateway implements ObjectStorageService {
     reply.setSize(objectEntity.getSize());
     reply.setVersionId(objectEntity.getVersionId());
     reply.setEtag(objectEntity.geteTag());
-    OSGUtil.setCorsInfo(request, reply, objectEntity.getBucket());
+    setCorsInfo(request, reply, objectEntity.getBucket());
     return reply;
   }
 
@@ -1495,7 +1496,7 @@ public class ObjectStorageGateway implements ObjectStorageService {
     GetBucketLocationResponseType reply = request.getReply();
     reply.setLocationConstraint(bucket.getLocation() == null ? "" : bucket.getLocation());
     reply.setBucket(request.getBucket());
-    OSGUtil.setCorsInfo(request, reply, bucket);
+    setCorsInfo(request, reply, bucket);
     return reply;
   }
 
@@ -1663,7 +1664,7 @@ public class ObjectStorageGateway implements ObjectStorageService {
         // Copy the version if the destination object was assigned one
         reply.setVersionId(!destObject.getVersionId().equals(ObjectStorageProperties.NULL_VERSION_ID) ? destObject.getVersionId() : null);
 
-        OSGUtil.setCorsInfo(request, reply, srcBucket);
+        setCorsInfo(request, reply, srcBucket);
         return reply;
 
       } else {
@@ -1704,7 +1705,7 @@ public class ObjectStorageGateway implements ObjectStorageService {
       reply.setLoggingEnabled(null);
     }
 
-    OSGUtil.setCorsInfo(request, reply, bucket);
+    setCorsInfo(request, reply, bucket);
     return reply;
   }
 
@@ -1734,7 +1735,7 @@ public class ObjectStorageGateway implements ObjectStorageService {
     GetBucketVersioningStatusResponseType reply = request.getReply();
     reply.setVersioningStatus(bucket.getVersioning().toString());
     reply.setBucket(request.getBucket());
-    OSGUtil.setCorsInfo(request, reply, bucket);
+    setCorsInfo(request, reply, bucket);
     return reply;
   }
 
@@ -1758,7 +1759,7 @@ public class ObjectStorageGateway implements ObjectStorageService {
     }
 
     SetBucketVersioningStatusResponseType reply = request.getReply();
-    OSGUtil.setCorsInfo(request, reply, bucket);
+    setCorsInfo(request, reply, bucket);
     return reply;
   }
 
@@ -1815,7 +1816,7 @@ public class ObjectStorageGateway implements ObjectStorageService {
         reply.getCommonPrefixesList().add(new CommonPrefixesEntry(s));
       }
 
-      OSGUtil.setCorsInfo(request, reply, bucket);
+      setCorsInfo(request, reply, bucket);
       return reply;
 
     } catch (S3Exception e) {
@@ -1863,7 +1864,7 @@ public class ObjectStorageGateway implements ObjectStorageService {
         if (responseEntity.getIsDeleteMarker() != null && responseEntity.getIsDeleteMarker())
           reply.setIsDeleteMarker(Boolean.TRUE);
       }
-      OSGUtil.setCorsInfo(request, reply, objectEntity.getBucket());
+      setCorsInfo(request, reply, objectEntity.getBucket());
       return reply;
     } catch (AccessDeniedException e) {
       LOG.debug("CorrelationId: " + Contexts.lookup().getCorrelationId() + " Responding to client with AccessDeniedException");
@@ -1891,7 +1892,7 @@ public class ObjectStorageGateway implements ObjectStorageService {
     } catch (Exception e) {
       throw new InternalErrorException(request.getBucket());
     }
-    OSGUtil.setCorsInfo(request, reply, bucket);
+    setCorsInfo(request, reply, bucket);
     return reply;
 
   }
@@ -1948,7 +1949,7 @@ public class ObjectStorageGateway implements ObjectStorageService {
       throw new InternalErrorException(bucketName);
     }
 
-    OSGUtil.setCorsInfo(request, response, bucket);
+    setCorsInfo(request, response, bucket);
     return response;
 
   }
@@ -1964,7 +1965,7 @@ public class ObjectStorageGateway implements ObjectStorageService {
       ex.setMessage("An exception was caught while managing the object lifecycle for bucket - " + bucket.getBucketName());
       throw ex;
     }
-    OSGUtil.setCorsInfo(request, response, bucket);
+    setCorsInfo(request, response, bucket);
     return response;
   }
 
@@ -1994,7 +1995,7 @@ public class ObjectStorageGateway implements ObjectStorageService {
 
     // AWS returns in a 204, rather than a 200 like other requests for SetBucketTaggingResponseType
     reply.setStatus(HttpResponseStatus.NO_CONTENT);
-    OSGUtil.setCorsInfo(request, reply, bucket);
+    setCorsInfo(request, reply, bucket);
     return reply;
   }
 
@@ -2034,7 +2035,7 @@ public class ObjectStorageGateway implements ObjectStorageService {
       throw e;
     }
 
-    OSGUtil.setCorsInfo(request, reply, bucket);
+    setCorsInfo(request, reply, bucket);
     return reply;
   }
 
@@ -2052,7 +2053,7 @@ public class ObjectStorageGateway implements ObjectStorageService {
       throw e;
     }
 
-    OSGUtil.setCorsInfo(request, reply, bucket);
+    setCorsInfo(request, reply, bucket);
     return reply;
   }
 
@@ -2077,7 +2078,7 @@ public class ObjectStorageGateway implements ObjectStorageService {
     }
     response = (GetBucketCorsResponseType) request.getReply();
 
-    OSGUtil.setCorsInfo(request, response, bucket);
+    setCorsInfo(request, response, bucket);
 
     CorsConfiguration corsConfiguration = new CorsConfiguration();
     List<CorsRule> responseRules = BucketCorsManagers.getInstance().getCorsRules(bucket.getBucketUuid());
@@ -2089,7 +2090,132 @@ public class ObjectStorageGateway implements ObjectStorageService {
       throw nscc;       
     }
     return response;
+  }
 
+  public void setCorsInfo(ObjectStorageRequestType request, ObjectStorageCommonResponseType response, Bucket bucket)
+      throws S3Exception {
+    setCorsInfo(request, response, bucket.getBucketName(), bucket.getBucketUuid());
+  }
+   
+  private void setCorsInfo(ObjectStorageRequestType request, ObjectStorageCommonResponseType response, String bucketName, String bucketUuid) 
+      throws S3Exception {
+    // NOTE: The request.getBucket() might be the bucket name, or might be the UUID, or might not be populated,
+    // depending on how it's been set by the caller. So, we pass in the bucket name separately.
+    // We need the bucket name for user-facing error messages, and we need the UUID to look up 
+    // bucket entities in the DB.
+    
+    if (request == null) {
+      throw new InternalErrorException("setCorsInfo called with a null request, bucket " + bucketName);
+    }
+    
+    if (response == null) {
+      throw new InternalErrorException("setCorsInfo called with a null response, bucket " + bucketName);
+    }
+    
+    // If it stays null, tells addCorsResponseHeaders not to add any headers
+    response.setAllowedOrigin(null);
+    
+    if (bucketUuid == null || bucketUuid.isEmpty()) {
+      LOG.debug("No bucket UUID, so no CORS headers");
+      return;
+    } else {
+      response.setBucketUuid(bucketUuid);
+    }
+    
+    String origin = request.getOrigin();
+    if (origin == null || origin.isEmpty()) {
+      LOG.debug("No origin header, so no CORS headers");
+      return;
+    } else {
+      response.setOrigin(origin);
+    }
+    
+    String httpMethod = request.getHttpMethod();
+    if (httpMethod == null || httpMethod.isEmpty()) {
+      LOG.debug("No method header, so no CORS headers");
+      return;
+    } else {
+      response.setHttpMethod(httpMethod);
+    }
+    
+    // We don't care if the bucket name is null
+    response.setBucketName(bucketName);
+
+    List<CorsRule> corsRules;
+    try {
+      corsRules = BucketCorsManagers.getInstance().getCorsRules(bucketUuid);
+    } catch (Exception ex) {
+      LOG.warn("Caught general exception while getting the CORS configuration for bucket <" + 
+          bucketName + ">, CorrelationId: " + Contexts.lookup().getCorrelationId() + 
+          ", responding to client with 500 InternalError because of: ", ex);
+      throw new InternalErrorException("Bucket " + bucketName, ex);
+    }
+
+    CorsMatchResult corsMatchResult = OSGUtil.matchCorsRules (corsRules, origin, httpMethod);
+    CorsRule corsRuleMatch = corsMatchResult.getCorsRuleMatch();
+
+    if (corsRuleMatch != null) {
+      response.setAllowedOrigin(corsMatchResult.getAnyOrigin() ? "*" : origin);
+
+      List<String> methodList = corsRuleMatch.getAllowedMethods();
+      if (methodList != null) {
+        // Convert list into "[method1, method2, ...]"
+        String methods = methodList.toString();
+        if (methods.length() > 2) {
+          // Chop off brackets
+          methods = methods.substring(1, methods.length()-1);
+          response.setAllowedMethods(methods);
+        }
+      } else {
+        response.setAllowedMethods(null);
+      }
+
+      List<String> exposeHeadersList = corsRuleMatch.getExposeHeaders();
+      if (exposeHeadersList != null) {
+        // Convert list into "[exposeHeader1, exposeHeader2, ...]"
+        String exposeHeaders = exposeHeadersList.toString();
+        if (exposeHeaders.length() > 2) {
+          // Chop off brackets
+          exposeHeaders = exposeHeaders.substring(1, exposeHeaders.length()-1);
+          response.setExposeHeaders(exposeHeaders);
+        }
+      } else {
+        response.setExposeHeaders(null);
+      }
+
+      if (corsRuleMatch.getMaxAgeSeconds() > 0) {
+        response.setMaxAgeSeconds(String.valueOf(corsRuleMatch.getMaxAgeSeconds()));
+      } else {
+        response.setMaxAgeSeconds(null);
+      }
+
+      // Set the "allow credentials" header to true only if the matching 
+      // CORS rule is NOT "any origin", otherwise don't set the header.
+      if (!corsMatchResult.getAnyOrigin()) {
+        response.setAllowCredentials("true");
+      } else {
+        // If not true, don't add the header
+        response.setAllowCredentials(null);
+      }
+
+      // Set the Vary header only if we have any other CORS headers.
+      // Check the allowed origin, because if we have any CORS headers, 
+      // we will have that one. 
+      // Match AWS behavior: Always contains these 3 header names. 
+      // It tells the user agent: If you cache this request+response, only
+      // give the cached response to a future request if all these headers 
+      // match the ones in the cached request. Otherwise, send the request 
+      // to the server, don't use the cached response.
+      if (response.getAllowedOrigin() != null) {
+        response.setVary(HttpHeaders.ORIGIN + ", " +
+            HttpHeaders.ACCESS_CONTROL_REQUEST_HEADERS + ", " +
+            HttpHeaders.ACCESS_CONTROL_REQUEST_METHOD);
+      } else {
+        response.setVary(null);
+      }
+    } else { // end if matching CORS rule
+      LOG.debug("Has origin but no matching CORS rule, therefore no CORS info stored");
+    }
   }
 
   @Override
@@ -2113,7 +2239,7 @@ public class ObjectStorageGateway implements ObjectStorageService {
     }
     response = (SetBucketCorsResponseType) request.getReply();
     // Set the CORS headers based on the CORS config *before* we change it!
-    OSGUtil.setCorsInfo(request, response, bucket);
+    setCorsInfo(request, response, bucket);
 
     CorsConfiguration corsConfig = request.getCorsConfiguration();
     if (corsConfig == null) {
@@ -2192,7 +2318,7 @@ public class ObjectStorageGateway implements ObjectStorageService {
     }
     response = (DeleteBucketCorsResponseType) request.getReply();
     // Set the CORS headers based on the CORS config *before* we delete it!
-    OSGUtil.setCorsInfo(request, response, bucket);
+    setCorsInfo(request, response, bucket);
     try {
       BucketCorsManagers.getInstance().deleteCorsRules(bucket.getBucketUuid());
     } catch (ObjectStorageException ex) {
@@ -2374,7 +2500,7 @@ public class ObjectStorageGateway implements ObjectStorageService {
         response.setKey(originalKey);
         response.setBucket(originalBucket);
         ObjectMetadataManagers.getInstance().finalizeMultipartInit(objectEntity, new Date(), response.getUploadId());
-        OSGUtil.setCorsInfo(request, response, bucket);
+        setCorsInfo(request, response, bucket);
         return response;
       } catch (Exception e) {
         // Wrap the error from back-end with a 500 error
@@ -2467,7 +2593,7 @@ public class ObjectStorageGateway implements ObjectStorageService {
         response.setEtag(updatedEntity.geteTag());
         response.setStatusMessage("OK");
         response.setSize(updatedEntity.getSize());
-        OSGUtil.setCorsInfo(request, response, bucket);
+        setCorsInfo(request, response, bucket);
         return response;
       } catch (Exception e) {
         // Wrap the error from back-end with a 500 error
@@ -2529,7 +2655,7 @@ public class ObjectStorageGateway implements ObjectStorageService {
             + completedEntity.getObjectKey());
         response.setBucket(request.getBucket());
         response.setKey(request.getKey());
-        OSGUtil.setCorsInfo(request, response, bucket);
+        setCorsInfo(request, response, bucket);
         return response;
       } catch (S3Exception e) {
         throw e;
@@ -2574,7 +2700,7 @@ public class ObjectStorageGateway implements ObjectStorageService {
 
         // all okay, delete all parts
         OsgObjectFactory.getFactory().flushMultipartUpload(ospClient, objectEntity, requestUser);
-        OSGUtil.setCorsInfo(request, response, bucket);
+        setCorsInfo(request, response, bucket);
         return response;
       } catch (Exception e) {
         // Wrap the error from back-end with a 500 error
@@ -2662,7 +2788,7 @@ public class ObjectStorageGateway implements ObjectStorageService {
       } catch (Exception e) {
         throw new InternalErrorException(e.getMessage());
       }
-      OSGUtil.setCorsInfo(request, reply, bucket);
+      setCorsInfo(request, reply, bucket);
       return reply;
     } else {
       throw new AccessDeniedException(request.getBucket() + "/" + request.getKey());
@@ -2735,7 +2861,7 @@ public class ObjectStorageGateway implements ObjectStorageService {
       LOG.error("Error getting object listing for bucket: " + request.getBucket(), e);
       throw new InternalErrorException(request.getBucket());
     }
-    OSGUtil.setCorsInfo(request, reply, bucket);
+    setCorsInfo(request, reply, bucket);
     return reply;
   }
 
@@ -2866,7 +2992,7 @@ public class ObjectStorageGateway implements ObjectStorageService {
         }
       }
     }
-    OSGUtil.setCorsInfo(request, reply, bucket);
+    setCorsInfo(request, reply, bucket);
     return reply;
   }
 }
