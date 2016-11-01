@@ -37,7 +37,8 @@ public class UserIdPolicyVariable extends PolicyVariableSupport {
   public String evaluate( ) throws AuthException {
     try {
       Context context = Contexts.lookup( );
-      if ( Principals.isFakeIdentityUserId( context.getUser( ).getAuthenticatedId( ) ) ) {
+      if ( Principals.isFakeIdentityUserId( context.getUser( ).getAuthenticatedId( ) ) ||
+           Principals.isFakeIdentityCanonicalId( context.getUser( ).getCanonicalId( ) ) ) {
         throw new AuthException( "Principal information not available" );  
       }
       return context.getUser( ).getAuthenticatedId( );
