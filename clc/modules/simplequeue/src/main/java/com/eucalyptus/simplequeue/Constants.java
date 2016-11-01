@@ -12,22 +12,8 @@
  *
  * You should have received a copy of the GNU General Public License
  * along with this program.  If not, see http://www.gnu.org/licenses/.
- *
- *  This file may incorporate work covered under the following copyright and permission notice:
- *
- *   Copyright 2010-2016 Amazon.com, Inc. or its affiliates. All Rights Reserved.
- *
- *   Licensed under the Apache License, Version 2.0 (the "License").
- *   You may not use this file except in compliance with the License.
- *   A copy of the License is located at
- *
- *    http://aws.amazon.com/apache2.0
- *
- *   or in the "license" file accompanying this file. This file is distributed
- *   on an "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either
- *   express or implied. See the License for the specific language governing
- *   permissions and limitations under the License.
  ************************************************************************/
+
 package com.eucalyptus.simplequeue;
 
 /**
@@ -60,4 +46,14 @@ public class Constants {
   public static final String DEAD_LETTER_TARGET_ARN = "deadLetterTargetArn";
   public static final String MAX_RECEIVE_COUNT = "maxReceiveCount";
 
+  public static final String NUMBER_OF_MESSAGES_SENT = "NumberOfMessagesSent";
+  public static final String AWS_SQS = "AWS/SQS";
+  public static final String QUEUE_NAME = "QueueName";
+  public static final String SENT_MESSAGE_SIZE = "SentMessageSize";
+  public static final String APPROXIMATE_AGE_OF_OLDEST_MESSAGE = "ApproximateAgeOfOldestMessage";
+
+  public static final String APPROXIMATE_NUMBER_OF_MESSAGES_VISIBLE = "ApproximateNumberOfMessagesVisible";
+  public static final String NUMBER_OF_EMPTY_RECEIVES = "NumberOfEmptyReceives";
+  public static final String NUMBER_OF_MESSAGES_DELETED = "NumberOfMessagesDeleted";
+  public static final String NUMBER_OF_MESSAGES_RECEIVED = "NumberOfMessagesReceived";
 }

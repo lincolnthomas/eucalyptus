@@ -40,18 +40,16 @@ import com.eucalyptus.auth.euare.Accounts;
 import com.eucalyptus.auth.euare.identity.region.RegionConfigurations;
 import com.eucalyptus.auth.policy.PolicyParser;
 import com.eucalyptus.auth.policy.ern.Ern;
+import com.eucalyptus.cloudwatch.common.msgs.PutMetricDataType;
 import com.eucalyptus.component.ServiceUris;
 import com.eucalyptus.component.Topology;
 import com.eucalyptus.component.annotation.ComponentNamed;
-import com.eucalyptus.configurable.ConfigurableClass;
-import com.eucalyptus.configurable.ConfigurableField;
-import com.eucalyptus.configurable.ConfigurableProperty;
-import com.eucalyptus.configurable.ConfigurablePropertyException;
-import com.eucalyptus.configurable.PropertyChangeListener;
-import com.eucalyptus.configurable.PropertyChangeListeners;
 import com.eucalyptus.context.Context;
 import com.eucalyptus.context.Contexts;
+import com.eucalyptus.simplequeue.async.CloudWatchClient;
+import com.eucalyptus.simplequeue.async.NotifyClient;
 import com.eucalyptus.simplequeue.common.policy.SimpleQueuePolicySpec;
+import com.eucalyptus.simplequeue.config.SimpleQueueProperties;
 import com.eucalyptus.simplequeue.exceptions.AccessDeniedException;
 import com.eucalyptus.simplequeue.exceptions.BatchEntryIdsNotDistinctException;
 import com.eucalyptus.simplequeue.exceptions.EmptyBatchRequestException;
@@ -68,11 +66,11 @@ import com.eucalyptus.simplequeue.exceptions.TooManyEntriesInBatchRequestExcepti
 import com.eucalyptus.simplequeue.exceptions.UnsupportedOperationException;
 import com.eucalyptus.simplequeue.persistence.PersistenceFactory;
 import com.eucalyptus.simplequeue.persistence.Queue;
+import com.eucalyptus.system.Threads;
 import com.eucalyptus.util.EucalyptusCloudException;
 import com.eucalyptus.util.Exceptions;
 import com.eucalyptus.util.RestrictedTypes;
 import com.eucalyptus.ws.Role;
-import com.eucalyptus.ws.WebServices;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.node.ArrayNode;
@@ -105,6 +103,7 @@ import java.security.MessageDigest;
 import java.util.ArrayList;
 import java.util.Collection;
 import java.util.Collections;
+import java.util.Date;
 import java.util.Iterator;
 import java.util.List;
 import java.util.Map;
@@ -112,99 +111,18 @@ import java.util.NoSuchElementException;
 import java.util.Objects;
 import java.util.Set;
 import java.util.UUID;
+import java.util.concurrent.Callable;
+import java.util.concurrent.Executors;
+import java.util.concurrent.ScheduledExecutorService;
+import java.util.concurrent.TimeUnit;
 import java.util.regex.Pattern;
 import java.util.stream.Collectors;
-
-@ConfigurableClass( root = "services.simplequeue", description = "Parameters controlling simple queue (SQS)")
 
 @ComponentNamed
 public class SimpleQueueService {
 
-  @ConfigurableField( description = "Maximum number of characters in a queue name.",
-    initial = "80", changeListener = PropertyChangeListeners.IsPositiveInteger.class )
-  public volatile static int MAX_QUEUE_NAME_LENGTH_CHARS = 80;
-
-  @ConfigurableField( description = "Maximum number of characters in a label.",
-    initial = "80", changeListener = PropertyChangeListeners.IsPositiveInteger.class )
-  public volatile static int MAX_LABEL_LENGTH_CHARS = 80;
-
-  @ConfigurableField( description = "Maximum value for delay seconds.",
-    initial = "900", changeListener = WebServices.CheckNonNegativeLongPropertyChangeListener.class )
-  public volatile static int MAX_DELAY_SECONDS = 900;
-
-  @ConfigurableField( description = "Maximum value for maximum message size.",
-    initial = "262144", changeListener = CheckMin1024IntPropertyChangeListener.class )
-  public volatile static int MAX_MAXIMUM_MESSAGE_SIZE = 262144;
-
-  @ConfigurableField( description = "Maximum value for message retention period.",
-    initial = "1209600", changeListener = CheckMin60IntPropertyChangeListener.class )
-  public volatile static int MAX_MESSAGE_RETENTION_PERIOD = 1209600;
-
-  @ConfigurableField( description = "Maximum value for receive message wait time seconds.",
-    initial = "20", changeListener = WebServices.CheckNonNegativeLongPropertyChangeListener.class )
-  public volatile static int MAX_RECEIVE_MESSAGE_WAIT_TIME_SECONDS = 20;
-
-  @ConfigurableField( description = "Maximum value for visibility timeout.",
-    initial = "43200", changeListener = WebServices.CheckNonNegativeLongPropertyChangeListener.class )
-  public volatile static int MAX_VISIBILITY_TIMEOUT = 43200;
-
-  @ConfigurableField( description = "Maximum value for maxReceiveCount (dead letter queue).",
-    initial = "1000", changeListener = PropertyChangeListeners.IsPositiveInteger.class )
-  public volatile static int MAX_MAX_RECEIVE_COUNT = 1000;
-
-  @ConfigurableField( description = "Maximum value for maxNumberOfMessages (ReceiveMessages).",
-    initial = "10", changeListener = PropertyChangeListeners.IsPositiveInteger.class )
-  public volatile static int MAX_RECEIVE_MESSAGE_MAX_NUMBER_OF_MESSAGES = 10;
-
-  @ConfigurableField( description = "Maximum length of message attribute name. (chars)",
-    initial = "256", changeListener = PropertyChangeListeners.IsPositiveInteger.class )
-  public volatile static int MAX_MESSAGE_ATTRIBUTE_NAME_LENGTH = 256;
-
-  @ConfigurableField( description = "Maximum number of bytes in message attribute type. (bytes)",
-    initial = "256", changeListener = PropertyChangeListeners.IsPositiveInteger.class )
-  public volatile static int MAX_MESSAGE_ATTRIBUTE_TYPE_LENGTH = 256;
-
-  @ConfigurableField( description = "Maximum number of entries in a batch request",
-    initial = "10", changeListener = PropertyChangeListeners.IsPositiveInteger.class )
-  public volatile static int MAX_NUM_BATCH_ENTRIES = 10;
-
-  @ConfigurableField( description = "Maximum length of batch id. (chars)",
-    initial = "80", changeListener = PropertyChangeListeners.IsPositiveInteger.class )
-  public volatile static int MAX_BATCH_ID_LENGTH = 80;
-
-  public abstract static class CheckMinIntPropertyChangeListener implements PropertyChangeListener {
-    protected int minValue = 0;
-
-    public CheckMinIntPropertyChangeListener(int minValue) {
-      this.minValue = minValue;
-    }
-
-    @Override
-    public void fireChange( ConfigurableProperty t, Object newValue ) throws ConfigurablePropertyException {
-      long value;
-      try {
-        value = Long.parseLong((String) newValue);
-      } catch (Exception ex) {
-        throw new ConfigurablePropertyException("Invalid value " + newValue);
-      }
-      if (value > minValue ) {
-        throw new ConfigurablePropertyException("Invalid value " + newValue);
-      }
-    }
-  }
-
-
-  public static class CheckMin1024IntPropertyChangeListener extends CheckMinIntPropertyChangeListener {
-    public CheckMin1024IntPropertyChangeListener() {
-      super(1024);
-    }
-  }
-
-  public static class CheckMin60IntPropertyChangeListener extends CheckMinIntPropertyChangeListener {
-    public CheckMin60IntPropertyChangeListener() {
-      super(60);
-    }
-  }
+  private static final ScheduledExecutorService sendMessageNotificationsScheduledExecutorService = Executors
+    .newScheduledThreadPool(4, Threads.threadFactory( "simplequeue-send-message-notification-%d" ) );
 
   static final Logger LOG = Logger.getLogger(SimpleQueueService.class);
 
@@ -242,9 +160,9 @@ public class SimpleQueueService {
       Pattern queueNamePattern = Pattern.compile("[A-Za-z0-9_-]+");
       if (!queueNamePattern.matcher(request.getQueueName()).matches() ||
         request.getQueueName().length() < 1 ||
-        request.getQueueName().length() > MAX_QUEUE_NAME_LENGTH_CHARS) {
+        request.getQueueName().length() > SimpleQueueProperties.MAX_QUEUE_NAME_LENGTH_CHARS) {
         throw new InvalidParameterValueException("Queue name can only include alphanumeric characters, hyphens, or " +
-          "underscores. 1 to " + MAX_QUEUE_NAME_LENGTH_CHARS + " in length");
+          "underscores. 1 to " + SimpleQueueProperties.MAX_QUEUE_NAME_LENGTH_CHARS + " in length");
       }
 
       Map<String, String> attributeMap = Maps.newTreeMap();
@@ -304,27 +222,27 @@ public class SimpleQueueService {
       switch (attribute.getName()) {
 
         case Constants.DELAY_SECONDS:
-          checkAttributeIntMinMax(attribute, 0, MAX_DELAY_SECONDS);
+          checkAttributeIntMinMax(attribute, 0, SimpleQueueProperties.MAX_DELAY_SECONDS);
           attributeMap.put(attribute.getName(), attribute.getValue());
           break;
 
         case Constants.MAXIMUM_MESSAGE_SIZE:
-          checkAttributeIntMinMax(attribute, 1024, MAX_MAXIMUM_MESSAGE_SIZE);
+          checkAttributeIntMinMax(attribute, 1024, SimpleQueueProperties.MAX_MAXIMUM_MESSAGE_SIZE);
           attributeMap.put(attribute.getName(), attribute.getValue());
           break;
 
         case Constants.MESSAGE_RETENTION_PERIOD:
-          checkAttributeIntMinMax(attribute, 60, MAX_MESSAGE_RETENTION_PERIOD);
+          checkAttributeIntMinMax(attribute, 60, SimpleQueueProperties.MAX_MESSAGE_RETENTION_PERIOD);
           attributeMap.put(attribute.getName(), attribute.getValue());
           break;
 
         case Constants.RECEIVE_MESSAGE_WAIT_TIME_SECONDS:
-          checkAttributeIntMinMax(attribute, 0, MAX_RECEIVE_MESSAGE_WAIT_TIME_SECONDS);
+          checkAttributeIntMinMax(attribute, 0, SimpleQueueProperties.MAX_RECEIVE_MESSAGE_WAIT_TIME_SECONDS);
           attributeMap.put(attribute.getName(), attribute.getValue());
           break;
 
         case Constants.VISIBILITY_TIMEOUT:
-          checkAttributeIntMinMax(attribute, 0, MAX_VISIBILITY_TIMEOUT);
+          checkAttributeIntMinMax(attribute, 0, SimpleQueueProperties.MAX_VISIBILITY_TIMEOUT);
           attributeMap.put(attribute.getName(), attribute.getValue());
           break;
 
@@ -383,10 +301,10 @@ public class SimpleQueueService {
           JsonNode maxReceiveCountJsonNode = redrivePolicyJsonNode.get(Constants.MAX_RECEIVE_COUNT);
           // note, if node is non-textual or has non-integer value, .asInt() will return 0, which is ok here.
           if (maxReceiveCountJsonNode == null || (maxReceiveCountJsonNode.asInt() < 1) ||
-            (maxReceiveCountJsonNode.asInt() > MAX_MAX_RECEIVE_COUNT)) {
+            (maxReceiveCountJsonNode.asInt() > SimpleQueueProperties.MAX_MAX_RECEIVE_COUNT)) {
             throw new InvalidParameterValueException("Value " + attribute.getValue() + " for parameter " +
               "RedrivePolicy is invalid. Reason: Invalid value for " + Constants.MAX_RECEIVE_COUNT + ": " +
-              maxReceiveCountJsonNode + ", valid values are from 1 to" + MAX_MAX_RECEIVE_COUNT + " both " +
+              maxReceiveCountJsonNode + ", valid values are from 1 to" + SimpleQueueProperties.MAX_MAX_RECEIVE_COUNT + " both " +
               "inclusive.");
           }
 
@@ -663,9 +581,9 @@ public class SimpleQueueService {
       Pattern labelPattern = Pattern.compile("[A-Za-z0-9_-]+");
       if (!labelPattern.matcher(request.getLabel()).matches() ||
         request.getLabel().length() < 1 ||
-        request.getLabel().length() > MAX_LABEL_LENGTH_CHARS) {
+        request.getLabel().length() > SimpleQueueProperties.MAX_LABEL_LENGTH_CHARS) {
         throw new InvalidParameterValueException("Label can only include alphanumeric characters, hyphens, or " +
-          "underscores. 1 to " + MAX_LABEL_LENGTH_CHARS + " in length");
+          "underscores. 1 to " + SimpleQueueProperties.MAX_LABEL_LENGTH_CHARS + " in length");
       }
 
       String policy = queue.getPolicyAsString();
@@ -763,8 +681,8 @@ public class SimpleQueueService {
     if (visibilityTimeout == null) {
       throw new MissingParameterException("VisibilityTimeout is a required field");
     }
-    if (visibilityTimeout < 0 || visibilityTimeout > MAX_VISIBILITY_TIMEOUT) {
-      throw new InvalidParameterValueException("VisibilityTimeout must be between 0 and " + MAX_VISIBILITY_TIMEOUT);
+    if (visibilityTimeout < 0 || visibilityTimeout > SimpleQueueProperties.MAX_VISIBILITY_TIMEOUT) {
+      throw new InvalidParameterValueException("VisibilityTimeout must be between 0 and " + SimpleQueueProperties.MAX_VISIBILITY_TIMEOUT);
     }
     if (receiptHandle == null) {
       throw new MissingParameterException("ReceiptHandle is a required field");
@@ -779,15 +697,17 @@ public class SimpleQueueService {
       final Context ctx = Contexts.lookup();
       Queue queue = getAndCheckPermissionOnQueue(request.getQueueUrl());
       String receiptHandle = request.getReceiptHandle();
-      handleDeleteMessage(queue, receiptHandle);
+      if (PersistenceFactory.getMessagePersistence().deleteMessage(queue, receiptHandle)) {
+        if (SimpleQueueProperties.ENABLE_METRICS_COLLECTION) {
+          PutMetricDataType putMetricDataType = CloudWatchClient.getSQSPutMetricDataType(queue);
+          CloudWatchClient.addSQSMetricDatum(putMetricDataType, queue, new Date(), Constants.NUMBER_OF_MESSAGES_DELETED, 1.0, "Count");
+          CloudWatchClient.putMetricData(putMetricDataType);
+        }
+      }
     } catch (Exception ex) {
       handleException(ex);
     }
     return reply;
-  }
-
-  private static void handleDeleteMessage(Queue queue, String receiptHandle) throws SimpleQueueException {
-    PersistenceFactory.getMessagePersistence().deleteMessage(queue, receiptHandle);
   }
 
   public DeleteQueueResponseType deleteQueue(DeleteQueueType request) throws EucalyptusCloudException {
@@ -904,9 +824,9 @@ public class SimpleQueueService {
       Pattern labelPattern = Pattern.compile("[A-Za-z0-9_-]+");
       if (!labelPattern.matcher(request.getLabel()).matches() ||
         request.getLabel().length() < 1 ||
-        request.getLabel().length() > MAX_LABEL_LENGTH_CHARS) {
+        request.getLabel().length() > SimpleQueueProperties.MAX_LABEL_LENGTH_CHARS) {
         throw new InvalidParameterValueException("Label can only include alphanumeric characters, hyphens, or " +
-          "underscores. 1 to " + MAX_LABEL_LENGTH_CHARS + " in length");
+          "underscores. 1 to " + SimpleQueueProperties.MAX_LABEL_LENGTH_CHARS + " in length");
       }
 
       String policy = queue.getPolicyAsString();
@@ -967,26 +887,26 @@ public class SimpleQueueService {
     ReceiveMessageResponseType reply = request.getReply();
     try {
       final Context ctx = Contexts.lookup();
-      Queue queue = getAndCheckPermissionOnQueue(request.getQueueUrl());
-      Map<String, String> receiveAttributes = Maps.newHashMap();
+      final Queue queue = getAndCheckPermissionOnQueue(request.getQueueUrl());
+      final Map<String, String> receiveAttributes = Maps.newHashMap();
       if (request.getVisibilityTimeout() != null) {
-        if (request.getVisibilityTimeout() < 0 || request.getVisibilityTimeout() > MAX_VISIBILITY_TIMEOUT) {
-          throw new InvalidParameterValueException("VisibilityTimeout must be between 0 and " + MAX_VISIBILITY_TIMEOUT);
+        if (request.getVisibilityTimeout() < 0 || request.getVisibilityTimeout() > SimpleQueueProperties.MAX_VISIBILITY_TIMEOUT) {
+          throw new InvalidParameterValueException("VisibilityTimeout must be between 0 and " + SimpleQueueProperties.MAX_VISIBILITY_TIMEOUT);
         }
         receiveAttributes.put(Constants.VISIBILITY_TIMEOUT, "" + request.getVisibilityTimeout());
       }
 
       if (request.getWaitTimeSeconds() != null) {
-        if (request.getWaitTimeSeconds() < 0 || request.getWaitTimeSeconds() > MAX_RECEIVE_MESSAGE_WAIT_TIME_SECONDS) {
-          throw new InvalidParameterValueException("WaitTimeSeconds must be between 0 and " + MAX_RECEIVE_MESSAGE_WAIT_TIME_SECONDS);
+        if (request.getWaitTimeSeconds() < 0 || request.getWaitTimeSeconds() > SimpleQueueProperties.MAX_RECEIVE_MESSAGE_WAIT_TIME_SECONDS) {
+          throw new InvalidParameterValueException("WaitTimeSeconds must be between 0 and " + SimpleQueueProperties.MAX_RECEIVE_MESSAGE_WAIT_TIME_SECONDS);
         }
         receiveAttributes.put(Constants.WAIT_TIME_SECONDS, "" + request.getWaitTimeSeconds());
       }
 
       int maxNumberOfMessages = 1;
       if (request.getMaxNumberOfMessages() != null) {
-        if (request.getMaxNumberOfMessages() < 1 || request.getMaxNumberOfMessages() > MAX_RECEIVE_MESSAGE_MAX_NUMBER_OF_MESSAGES) {
-          throw new InvalidParameterValueException("WaitTimeSeconds must be between 1 and " + MAX_RECEIVE_MESSAGE_MAX_NUMBER_OF_MESSAGES);
+        if (request.getMaxNumberOfMessages() < 1 || request.getMaxNumberOfMessages() > SimpleQueueProperties.MAX_RECEIVE_MESSAGE_MAX_NUMBER_OF_MESSAGES) {
+          throw new InvalidParameterValueException("WaitTimeSeconds must be between 1 and " + SimpleQueueProperties.MAX_RECEIVE_MESSAGE_MAX_NUMBER_OF_MESSAGES);
         }
         maxNumberOfMessages = request.getMaxNumberOfMessages();
       }
@@ -1011,20 +931,64 @@ public class SimpleQueueService {
         receiveAttributes.put(Constants.MESSAGE_RETENTION_PERIOD, ""+deadLetterQueue.getMessageRetentionPeriod());
         receiveAttributes.put(Constants.MAX_RECEIVE_COUNT, ""+maxReceiveCount);
       }
+      int waitTimeSeconds = request.getWaitTimeSeconds() != null ? request.getWaitTimeSeconds() : queue.getReceiveMessageWaitTimeSeconds();
 
       Collection<Message> messages = PersistenceFactory.getMessagePersistence().receiveMessages(queue, receiveAttributes);
-
-      if (messages != null) {
-        for (Message message: messages) {
-          filterReceiveAttributes(message, request.getAttributeName());
-          filterReceiveMessageAttributes(message, request.getMessageAttributeName());
-          reply.getReceiveMessageResult().getMessage().add(message);
+      if (messages != null && !messages.isEmpty()) {
+        sendReceivedMessagesCW(queue, messages, request.getAttributeName(), request.getMessageAttributeName());
+        reply.getReceiveMessageResult().getMessage().addAll(messages);
+      } else {
+        if (SimpleQueueProperties.ENABLE_LONG_POLLING && waitTimeSeconds > 0) {
+          handleQueuePollingForReceive(queue,
+            reply,
+            new Callable<ReceiveMessageResult>() {
+              @Override
+              public ReceiveMessageResult call() throws Exception {
+                Collection<Message> messages = PersistenceFactory.getMessagePersistence().receiveMessages(queue, receiveAttributes);
+                if (messages != null && !messages.isEmpty()) {
+                  sendReceivedMessagesCW(queue, messages, request.getAttributeName(), request.getMessageAttributeName());
+                  ReceiveMessageResult receiveMessageResult = new ReceiveMessageResult();
+                  receiveMessageResult.getMessage().addAll(messages);
+                  return receiveMessageResult;
+                } else {
+                  return null;
+                }
+              }
+            },
+            System.currentTimeMillis()+waitTimeSeconds*1000L
+          );
+          return null;
+        } else {
+          sendEmptyReceiveCW(queue);
         }
       }
     } catch (Exception ex) {
       handleException(ex);
     }
     return reply;
+  }
+
+  private static void sendReceivedMessagesCW(Queue queue, Collection<Message> messages,
+                                             ArrayList<String> attributeNames,
+                                             ArrayList<String> messageAttributeNames) throws EucalyptusCloudException, AuthException {
+    Date now = new Date();
+    for (Message message: messages) {
+      filterReceiveAttributes(message, attributeNames);
+      filterReceiveMessageAttributes(message, messageAttributeNames);
+    }
+    if (SimpleQueueProperties.ENABLE_METRICS_COLLECTION) {
+      PutMetricDataType putMetricDataType = CloudWatchClient.getSQSPutMetricDataType(queue);
+      CloudWatchClient.addSQSMetricDatum(putMetricDataType, queue, now, Constants.NUMBER_OF_MESSAGES_RECEIVED, messages.size(), 1.0, 1.0, messages.size(), "Count");
+      CloudWatchClient.putMetricData(putMetricDataType);
+    }
+  }
+
+  static void sendEmptyReceiveCW(Queue queue) throws AuthException {
+    if (SimpleQueueProperties.ENABLE_METRICS_COLLECTION) {
+      PutMetricDataType putMetricDataType = CloudWatchClient.getSQSPutMetricDataType(queue);
+      CloudWatchClient.addSQSMetricDatum(putMetricDataType, queue, new Date(), Constants.NUMBER_OF_EMPTY_RECEIVES, 1.0, "Count");
+      CloudWatchClient.putMetricData(putMetricDataType);
+    }
   }
 
   private static void filterReceiveMessageAttributes(Message message, ArrayList<String> matchingMessageAttributeNames)
@@ -1081,8 +1045,8 @@ public class SimpleQueueService {
     if (Strings.isNullOrEmpty(name)) {
       throw new InvalidParameterValueException("Message attribute name can not be null or empty");
     }
-    if (name.length() > MAX_MESSAGE_ATTRIBUTE_NAME_LENGTH) {
-      throw new InvalidParameterValueException("Message attribute name can not be longer than " + MAX_MESSAGE_ATTRIBUTE_NAME_LENGTH + " characters");
+    if (name.length() > SimpleQueueProperties.MAX_MESSAGE_ATTRIBUTE_NAME_LENGTH) {
+      throw new InvalidParameterValueException("Message attribute name can not be longer than " + SimpleQueueProperties.MAX_MESSAGE_ATTRIBUTE_NAME_LENGTH + " characters");
     }
     if (name.toLowerCase().startsWith("amazon") || name.toLowerCase().startsWith("aws")) {
       throw new InvalidParameterValueException("Message attribute names starting with 'AWS.' or 'Amazon.' are reserved for use by Amazon.");
@@ -1124,8 +1088,8 @@ public class SimpleQueueService {
     // this is done in .getBytes(UTF8).length vs just .getLength() because the AWS documentation limits type by bytes.
     int typeLengthBytes = type.getBytes(UTF8).length;
 
-    if (typeLengthBytes > MAX_MESSAGE_ATTRIBUTE_TYPE_LENGTH) {
-      throw new InvalidParameterValueException("Message attribute type can not be longer than " + MAX_MESSAGE_ATTRIBUTE_TYPE_LENGTH + " bytes");
+    if (typeLengthBytes > SimpleQueueProperties.MAX_MESSAGE_ATTRIBUTE_TYPE_LENGTH) {
+      throw new InvalidParameterValueException("Message attribute type can not be longer than " + SimpleQueueProperties.MAX_MESSAGE_ATTRIBUTE_TYPE_LENGTH + " bytes");
     }
 
     attributeValueLength += typeLengthBytes;
@@ -1249,8 +1213,8 @@ public class SimpleQueueService {
     Message message = new Message();
 
     if (delaySeconds != null) {
-      if (delaySeconds < 0 || delaySeconds > MAX_DELAY_SECONDS) {
-        throw new InvalidParameterValueException("DelaySeconds must be a number between 0 and " + MAX_DELAY_SECONDS);
+      if (delaySeconds < 0 || delaySeconds > SimpleQueueProperties.MAX_DELAY_SECONDS) {
+        throw new InvalidParameterValueException("DelaySeconds must be a number between 0 and " + SimpleQueueProperties.MAX_DELAY_SECONDS);
       }
       sendAttributes.put(Constants.DELAY_SECONDS, "" + delaySeconds);
     }
@@ -1303,7 +1267,7 @@ public class SimpleQueueService {
     SendMessageResponseType reply = request.getReply();
     try {
       final Context ctx = Contexts.lookup();
-      Queue queue = getAndCheckPermissionOnQueue(request.getQueueUrl());
+      final Queue queue = getAndCheckPermissionOnQueue(request.getQueueUrl());
 
       MessageInfo messageInfo = validateAndGetMessageInfo(queue, ctx.getAccountNumber(), request.getMessageBody(), request.getDelaySeconds(),  request.getMessageAttribute());
 
@@ -1312,6 +1276,18 @@ public class SimpleQueueService {
       reply.getSendMessageResult().setmD5OfMessageAttributes(messageInfo.getMessage().getmD5OfMessageAttributes());
       reply.getSendMessageResult().setMessageId(messageInfo.getMessage().getMessageId());
       reply.getSendMessageResult().setmD5OfMessageBody(messageInfo.getMessage().getmD5OfBody());
+
+      int delaySeconds = request.getDelaySeconds() == null ? queue.getDelaySeconds() : request.getDelaySeconds().intValue();
+      if (SimpleQueueProperties.ENABLE_LONG_POLLING) {
+        sendMessageNotificationsScheduledExecutorService.schedule(() -> NotifyClient.notifyQueue(queue), delaySeconds, TimeUnit.SECONDS);
+      }
+      if (SimpleQueueProperties.ENABLE_METRICS_COLLECTION) {
+        Date now = new Date();
+        PutMetricDataType putMetricDataType = CloudWatchClient.getSQSPutMetricDataType(queue);
+        CloudWatchClient.addSQSMetricDatum(putMetricDataType, queue, now, Constants.NUMBER_OF_MESSAGES_SENT, 1.0, "Count");
+        CloudWatchClient.addSQSMetricDatum(putMetricDataType, queue, now, Constants.SENT_MESSAGE_SIZE, (double) messageInfo.getMessageLength(), "Bytes");
+        CloudWatchClient.putMetricData(putMetricDataType);
+      }
     } catch (Exception ex) {
       handleException(ex);
     }
@@ -1345,8 +1321,8 @@ public class SimpleQueueService {
         throw new EmptyBatchRequestException("There should be at least one ChangeMessageVisibilityBatchRequestEntry in the request.");
       }
 
-      if (request.getChangeMessageVisibilityBatchRequestEntry().size() > MAX_NUM_BATCH_ENTRIES) {
-        throw new TooManyEntriesInBatchRequestException("Maximum number of entries per request are " + MAX_NUM_BATCH_ENTRIES +
+      if (request.getChangeMessageVisibilityBatchRequestEntry().size() > SimpleQueueProperties.MAX_NUM_BATCH_ENTRIES) {
+        throw new TooManyEntriesInBatchRequestException("Maximum number of entries per request are " + SimpleQueueProperties.MAX_NUM_BATCH_ENTRIES +
           ". You have sent " + request.getChangeMessageVisibilityBatchRequestEntry().size() + ".");
       }
 
@@ -1356,9 +1332,9 @@ public class SimpleQueueService {
         if (batchRequestEntry.getId() == null || batchRequestEntry.getId().isEmpty()) {
           throw new MissingParameterException("A batch entry id is a required field");
         }
-        if (batchRequestEntry.getId().length() > MAX_BATCH_ID_LENGTH
+        if (batchRequestEntry.getId().length() > SimpleQueueProperties.MAX_BATCH_ID_LENGTH
           || !batchIdPattern.matcher(batchRequestEntry.getId()).matches()) {
-          throw new InvalidBatchEntryIdException("A batch entry id can only contain alphanumeric characters, hyphens and underscores. It can be at most "+MAX_BATCH_ID_LENGTH+" letters long.");
+          throw new InvalidBatchEntryIdException("A batch entry id can only contain alphanumeric characters, hyphens and underscores. It can be at most "+ SimpleQueueProperties.MAX_BATCH_ID_LENGTH+" letters long.");
         }
         if (previousIds.contains(batchRequestEntry.getId())) {
           throw new BatchEntryIdsNotDistinctException("A batch entry id is duplicated in this request");
@@ -1400,8 +1376,8 @@ public class SimpleQueueService {
         throw new EmptyBatchRequestException("There should be at least one DeleteMessageBatchRequestEntry in the request.");
       }
 
-      if (request.getDeleteMessageBatchRequestEntry().size() > MAX_NUM_BATCH_ENTRIES) {
-        throw new TooManyEntriesInBatchRequestException("Maximum number of entries per request are " + MAX_NUM_BATCH_ENTRIES +
+      if (request.getDeleteMessageBatchRequestEntry().size() > SimpleQueueProperties.MAX_NUM_BATCH_ENTRIES) {
+        throw new TooManyEntriesInBatchRequestException("Maximum number of entries per request are " + SimpleQueueProperties.MAX_NUM_BATCH_ENTRIES +
           ". You have sent " + request.getDeleteMessageBatchRequestEntry().size() + ".");
       }
 
@@ -1411,18 +1387,24 @@ public class SimpleQueueService {
         if (batchRequestEntry.getId() == null || batchRequestEntry.getId().isEmpty()) {
           throw new MissingParameterException("A batch entry id is a required field");
         }
-        if (batchRequestEntry.getId().length() > MAX_BATCH_ID_LENGTH
+        if (batchRequestEntry.getId().length() > SimpleQueueProperties.MAX_BATCH_ID_LENGTH
           || !batchIdPattern.matcher(batchRequestEntry.getId()).matches()) {
-          throw new InvalidBatchEntryIdException("A batch entry id can only contain alphanumeric characters, hyphens and underscores. It can be at most "+MAX_BATCH_ID_LENGTH+" letters long.");
+          throw new InvalidBatchEntryIdException("A batch entry id can only contain alphanumeric characters, hyphens and underscores. It can be at most "+ SimpleQueueProperties.MAX_BATCH_ID_LENGTH+" letters long.");
         }
         if (previousIds.contains(batchRequestEntry.getId())) {
           throw new BatchEntryIdsNotDistinctException("A batch entry id is duplicated in this request");
         }
         previousIds.add(batchRequestEntry.getId());
       }
+      Date now = new Date();
+      int numSuccessfulRealDeletes = 0;
       for (DeleteMessageBatchRequestEntry batchRequestEntry: request.getDeleteMessageBatchRequestEntry()) {
         try {
-          handleDeleteMessage(queue, batchRequestEntry.getReceiptHandle());
+          if (PersistenceFactory.getMessagePersistence().deleteMessage(queue, batchRequestEntry.getReceiptHandle())) {
+            // note: only send a CW metric if we actually delete a message.  We can still 'succeed' on a stale
+            // receipt handle.
+            numSuccessfulRealDeletes++;
+          }
           DeleteMessageBatchResultEntry success = new DeleteMessageBatchResultEntry();
           success.setId(batchRequestEntry.getId());
           reply.getDeleteMessageBatchResult().getDeleteMessageBatchResultEntry().add(success);
@@ -1439,6 +1421,12 @@ public class SimpleQueueService {
           }
         }
       }
+      if (SimpleQueueProperties.ENABLE_METRICS_COLLECTION && numSuccessfulRealDeletes > 0) {
+        PutMetricDataType putMetricDataType = CloudWatchClient.getSQSPutMetricDataType(queue);
+        CloudWatchClient.addSQSMetricDatum(putMetricDataType, queue, new Date(), Constants.NUMBER_OF_MESSAGES_DELETED,
+          numSuccessfulRealDeletes, 1.0, 1.0, numSuccessfulRealDeletes, "Count");
+        CloudWatchClient.putMetricData(putMetricDataType);
+      }
     } catch (Exception ex) {
       handleException(ex);
     }
@@ -1449,14 +1437,14 @@ public class SimpleQueueService {
     SendMessageBatchResponseType reply = request.getReply();
     try {
       final Context ctx = Contexts.lookup();
-      Queue queue = getAndCheckPermissionOnQueue(request.getQueueUrl());
+      final Queue queue = getAndCheckPermissionOnQueue(request.getQueueUrl());
       if (request.getSendMessageBatchRequestEntry() == null ||
         request.getSendMessageBatchRequestEntry().isEmpty()) {
         throw new EmptyBatchRequestException("There should be at least one SendMessageBatchRequestEntry in the request.");
       }
 
-      if (request.getSendMessageBatchRequestEntry().size() > MAX_NUM_BATCH_ENTRIES) {
-        throw new TooManyEntriesInBatchRequestException("Maximum number of entries per request are " + MAX_NUM_BATCH_ENTRIES +
+      if (request.getSendMessageBatchRequestEntry().size() > SimpleQueueProperties.MAX_NUM_BATCH_ENTRIES) {
+        throw new TooManyEntriesInBatchRequestException("Maximum number of entries per request are " + SimpleQueueProperties.MAX_NUM_BATCH_ENTRIES +
           ". You have sent " + request.getSendMessageBatchRequestEntry().size() + ".");
       }
 
@@ -1466,9 +1454,9 @@ public class SimpleQueueService {
         if (batchRequestEntry.getId() == null || batchRequestEntry.getId().isEmpty()) {
           throw new MissingParameterException("A batch entry id is a required field");
         }
-        if (batchRequestEntry.getId().length() > MAX_BATCH_ID_LENGTH
+        if (batchRequestEntry.getId().length() > SimpleQueueProperties.MAX_BATCH_ID_LENGTH
           || !batchIdPattern.matcher(batchRequestEntry.getId()).matches()) {
-          throw new InvalidBatchEntryIdException("A batch entry id can only contain alphanumeric characters, hyphens and underscores. It can be at most "+MAX_BATCH_ID_LENGTH+" letters long.");
+          throw new InvalidBatchEntryIdException("A batch entry id can only contain alphanumeric characters, hyphens and underscores. It can be at most "+ SimpleQueueProperties.MAX_BATCH_ID_LENGTH+" letters long.");
         }
         if (previousIds.contains(batchRequestEntry.getId())) {
           throw new BatchEntryIdsNotDistinctException("A batch entry id is duplicated in this request");
@@ -1486,6 +1474,11 @@ public class SimpleQueueService {
         }
         messageInfoMap.put(batchRequestEntry.getId(), messageInfo);
       }
+      Date now = new Date();
+      int numSuccessfulMessages = 0;
+      int totalSuccessfulMessagesLength = 0;
+      Integer smallestSuccessfulMessageLength = null;
+      Integer largestSuccessfulMessageLength = null;
       for (SendMessageBatchRequestEntry batchRequestEntry: request.getSendMessageBatchRequestEntry()) {
         try {
           MessageInfo messageInfo = messageInfoMap.get(batchRequestEntry.getId());
@@ -1496,6 +1489,18 @@ public class SimpleQueueService {
           success.setmD5OfMessageBody(messageInfo.getMessage().getmD5OfBody());
           success.setId(batchRequestEntry.getId());
           reply.getSendMessageBatchResult().getSendMessageBatchResultEntry().add(success);
+          int delaySeconds = batchRequestEntry.getDelaySeconds() == null ? queue.getDelaySeconds() : batchRequestEntry.getDelaySeconds().intValue();
+          if (SimpleQueueProperties.ENABLE_LONG_POLLING) {
+            sendMessageNotificationsScheduledExecutorService.schedule(() -> NotifyClient.notifyQueue(queue), delaySeconds, TimeUnit.SECONDS);
+          }
+          numSuccessfulMessages += 1;
+          if (smallestSuccessfulMessageLength == null || smallestSuccessfulMessageLength < messageInfo.getMessageLength()) {
+            smallestSuccessfulMessageLength = messageInfo.getMessageLength();
+          }
+          if (largestSuccessfulMessageLength == null || largestSuccessfulMessageLength > messageInfo.getMessageLength()) {
+            largestSuccessfulMessageLength = messageInfo.getMessageLength();
+          }
+          totalSuccessfulMessagesLength += messageInfo.getMessageLength();
         } catch (Exception ex) {
           try {
             handleException(ex);
@@ -1508,6 +1513,12 @@ public class SimpleQueueService {
             reply.getSendMessageBatchResult().getBatchResultErrorEntry().add(failure);
           }
         }
+      }
+      if (SimpleQueueProperties.ENABLE_METRICS_COLLECTION && numSuccessfulMessages > 0) {
+        PutMetricDataType putMetricDataType = CloudWatchClient.getSQSPutMetricDataType(queue);
+        CloudWatchClient.addSQSMetricDatum(putMetricDataType, queue, now, Constants.NUMBER_OF_MESSAGES_SENT, numSuccessfulMessages, 1.0, 1.0, numSuccessfulMessages, "Count");
+        CloudWatchClient.addSQSMetricDatum(putMetricDataType, queue, now, Constants.SENT_MESSAGE_SIZE, numSuccessfulMessages, smallestSuccessfulMessageLength, largestSuccessfulMessageLength, totalSuccessfulMessagesLength, "Bytes");
+        CloudWatchClient.putMetricData(putMetricDataType);
       }
     } catch (Exception ex) {
       handleException(ex);
@@ -1574,6 +1585,40 @@ public class SimpleQueueService {
     .add(Range.closed((int) 'a', (int) 'z'))
     .build();
 
+  private static void handleQueuePollingForReceive( final Queue queue,
+                                                    final ReceiveMessageResponseType response,
+                                                    final Callable<? extends ReceiveMessageResult> resultCallable,
+                                                    final long pollTimeout) throws AuthException {
+    try {
+      NotifyClient.pollQueue(queue, pollTimeout, Contexts.consumerWithCurrentContext(
+        (notified) -> {
+          try {
+            if (notified) {
+              final ReceiveMessageResult receiveMessageResult = resultCallable.call();
+              if (receiveMessageResult != null) {
+                response.setReceiveMessageResult(receiveMessageResult);
+                Contexts.response(response);
+                return;
+              } else if (System.currentTimeMillis() < pollTimeout) {
+                handleQueuePollingForReceive(queue, response, resultCallable, pollTimeout);
+                return;
+              }
+            }
+            sendEmptyReceiveCW(queue);
+            Contexts.response(response);
+          } catch (final InterruptedException e) {
+            LOG.info("Interrupted while polling for task " + queue.getArn(), e);
+          } catch (final Exception e) {
+            LOG.error("Error polling for task " + queue.getArn(), e);
+          }
+        }
+      ));
+    } catch ( Exception e ) {
+      LOG.error("Error polling for task " + queue.getArn(), e);
+      sendEmptyReceiveCW(queue);
+      Contexts.response( response );
+    }
+  }
 
   public static long currentTimeSeconds() {
     return System.currentTimeMillis() / 1000L;
