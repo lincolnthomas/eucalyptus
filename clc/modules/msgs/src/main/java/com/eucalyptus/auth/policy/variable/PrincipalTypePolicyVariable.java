@@ -37,8 +37,7 @@ public class PrincipalTypePolicyVariable extends PolicyVariableSupport {
   public String evaluate( ) throws AuthException {
     try {
       Context context = Contexts.lookup( );
-      if ( Principals.isFakeIdentityUserId( context.getUser( ).getAuthenticatedId( ) ) ||
-           Principals.isFakeIdentityCanonicalId( context.getUser( ).getCanonicalId( ) ) ) {
+      if ( Principals.isFakeIdentityUserId( context.getUser( ).getAuthenticatedId( ) ) ) {
         return "Anonymous";
       }
       if ( !context.getUser( ).getAuthenticatedId( ).equals( context.getUser( ).getUserId( ) ) ) {
