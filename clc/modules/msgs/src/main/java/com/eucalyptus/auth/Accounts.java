@@ -250,7 +250,7 @@ public class Accounts {
 
   @Nonnull
   public static UserPrincipal lookupPrincipalByCanonicalId( String canonicalId ) throws AuthException {
-    if (canonicalId == AccountIdentifiers.NOBODY_CANONICAL_ID) {
+    if (canonicalId.equals(AccountIdentifiers.NOBODY_CANONICAL_ID)) {
       return Principals.nobodyUser();
     } else {
       return getIdentityProvider( ).lookupPrincipalByCanonicalId( canonicalId );
