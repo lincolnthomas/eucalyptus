@@ -32,6 +32,7 @@ import com.eucalyptus.blockstorage.ceph.CephRbdFormatTwoAdapter
 import com.eucalyptus.blockstorage.ceph.entities.CephRbdInfo
 import com.eucalyptus.blockstorage.ceph.exceptions.EucalyptusCephException
 import com.eucalyptus.blockstorage.entities.SnapshotInfo
+import com.eucalyptus.blockstorage.entities.SnapshotInfo_
 import com.eucalyptus.blockstorage.entities.VolumeInfo
 import com.eucalyptus.blockstorage.entities.VolumeToken
 import com.eucalyptus.blockstorage.util.StorageProperties
@@ -59,15 +60,15 @@ Function<Object, List<SnapshotInfo>> getSnapshotList = new Function<Object, List
   }
 }
 
-Function<List<String>, Boolean> storeUpdatedSnapshots = new Function<List<String>, Boolean>() {
+Function<List<SnapshotInfo>, Boolean> storeUpdatedSnapshots = new Function<List<SnapshotInfo>, Boolean>() {
   @Override
-  public Boolean apply(List<String> snapshotsToUpdate) {
+  public Boolean apply(List<SnapshotInfo> snapshotsToUpdate) {
     boolean result = true
     for (SnapshotInfo snapshot : snapshotsToUpdate) {
       if (snapshot.getSnapPointId() != null) {
         SnapshotInfo snapshotFromDb = null
         try {
-          snapshotFromDb = Entities.criteriaQuery(Entities.restriction(SnapshotInfo.class).equal(SnapshotInfo_.snapshotId, snapshot.getSnapshotId()).uniqueResult())
+          snapshotFromDb = Entities.criteriaQuery(Entities.restriction(SnapshotInfo.class).equal(SnapshotInfo_.snapshotId, snapshot.getSnapshotId())).uniqueResult()
           snapshotFromDb.setSnapPointId(snapshot.getSnapPointId())
         } catch (Exception e) {
           line = LINE_PREFIX + "Caught Exception looking up snapshot " + snapshot.getSnapshotId() + " from Eucalyptus database: " + e.getMessage()
@@ -91,13 +92,14 @@ try {
   LOG.error(line, e)
 }
 
-if (snapshots != null && snapshots.isEmpty()) {
-  ArrayList snapshotsToUpdate = new ArrayList()
+ArrayList<SnapshotInfo> snapshotsToUpdate = null
+if (snapshots != null && !snapshots.isEmpty()) {
+  snapshotsToUpdate = new ArrayList<SnapshotInfo>()
   for (SnapshotInfo snapshot : snapshots) {
-    line = LINE_PREFIX + "Snapshot info: \n   snap ID: " + snap.getSnapshotId() + "\n   snap point ID: " + snap.getSnapPointId()
+    line = LINE_PREFIX + "Snapshot info: \n   snapshot ID: " + snapshot.getSnapshotId() + "\n   snapshot point ID: " + snapshot.getSnapPointId()
     LOG.debug(line)
     if (snapshot.getSnapPointId() == null) {
-      line = LINE_PREFIX + "Adding snap ID " + snap.getSnapshotId() + " to list of snapshots to update"
+      line = LINE_PREFIX + "Adding snapshot ID " + snapshot.getSnapshotId() + " to list of snapshots to update"
       LOG.debug(line)
       snapshotsToUpdate.add(snapshot)
     }
@@ -111,10 +113,10 @@ if (snapshots != null && snapshots.isEmpty()) {
 
     CephRbdConnectionManager rbdConnection = null
 
-    String[] snapshotPoolsArray = cephInfo.getAllSnapshotPools()
-    List snapshotPools = Arrays.asList(snapshotPoolsArray)
+    String[] volumePoolsArray = cephInfo.getAllVolumePools()
+    List volumePools = Arrays.asList(volumePoolsArray)
 
-    for (String pool : snapshotPools) {
+    for (String pool : volumePools) {
       try {
         rbdConnection = CephRbdConnectionManager.getConnection(cephInfo, pool)
         line = LINE_PREFIX + "Connected to Ceph pool " + pool
@@ -131,11 +133,12 @@ if (snapshots != null && snapshots.isEmpty()) {
 
       for (SnapshotInfo snapshot : snapshotsToUpdate) {
         if (snapshot.getSnapPointId() == null) {
+          String volumeId = snapshot.getVolumeId()
           String snapshotId = snapshot.getSnapshotId()
-          if (imageIds.contains(snapshotId)) {
-            String snapPointId = pool + CephRbdInfo.POOL_IMAGE_DELIMITER + snapshot.getVolumeId() + \
+          if (imageIds.contains(volumeId)) {
+            String snapPointId = pool + CephRbdInfo.POOL_IMAGE_DELIMITER + volumeId + \
                 CephRbdInfo.IMAGE_SNAPSHOT_DELIMITER + CephRbdInfo.SNAPSHOT_FOR_PREFIX + snapshotId
-            line = LINE_PREFIX + "Found snapshot " + snapshotId + " in pool " + pool + ", storing snapshot point " + snapPointId
+            line = LINE_PREFIX + "Found volume " + volumeId + " for snapshot " + snapshotId + " in pool " + pool + ", storing snapshot point " + snapPointId
             output.append(line + '\n')
             LOG.info(line)
             snapshot.setSnapPointId(snapPointId)
@@ -155,7 +158,7 @@ if (snapshots != null && snapshots.isEmpty()) {
           line = LINE_PREFIX + "Failure trying to store newly updated snapshot points in " + \
           "Eucalyptus database. Snapshots might not be updated."
           output.append(line + '\n')
-          LOG.error(line, e)
+          LOG.error(line)
         }
       } catch (Exception e) {
         line = LINE_PREFIX + "Caught Exception trying to store newly updated snapshot points in " + \
