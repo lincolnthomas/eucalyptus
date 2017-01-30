@@ -77,8 +77,8 @@ class LocalLogger {
     output = new StringBuffer(1000)
   }
 
-  private static void addOutput(String message) {
-    output.append(LINE_PREFIX + message + '\n')
+  private static void addOutput(Object message) {
+    output.append(LINE_PREFIX + message.toString() + '\n')
   }
 
   static String getOutput() {
