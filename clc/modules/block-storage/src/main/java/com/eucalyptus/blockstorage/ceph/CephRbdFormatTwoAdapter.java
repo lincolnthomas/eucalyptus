@@ -282,7 +282,9 @@ public class CephRbdFormatTwoAdapter implements CephRbdAdapter {
 
           return null;
         } catch (RbdException e) {
-          LOG.warn("Caught error while listing or deleting RBD images in pool " + poolName + ": " + e.getMessage());
+          // Changed from WARN to INFO per EUCA-13254, can change back to ERROR if EUCA-13243 gets resoloved.
+          LOG.info("Caught error while listing or deleting RBD images in pool " + poolName + ": " + e.getMessage() + 
+              ", return value = " + e.getReturnValue());
           throw new EucalyptusCephException("Failed to delete RBD images in pool " + poolName, e);
         }
       }
