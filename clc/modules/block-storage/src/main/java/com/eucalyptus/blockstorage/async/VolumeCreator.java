@@ -599,26 +599,33 @@ public class VolumeCreator implements Runnable {
     }
     SnapshotTransfer snapshotTransfer = new S3SnapshotTransfer(snap.getSnapshotId(), bucket, key);
     Path diffPath = Files.createTempFile(Paths.get("/var/tmp"), snap.getSnapshotId() + "_" + prevSnap.getSnapshotId() + "_", ".diff");
+    LOG.trace("Created snapshot diff file " + diffPath.toString());
+    StorageResource sr = new FileResource(snap.getSnapshotId(), diffPath.toString());
 
     // Download snapshot delta
-    StorageResource sr = new FileResource(snap.getSnapshotId(), diffPath.toString());
-    snapshotTransfer.download(sr);
-
-    // Apply the snapshot delta
     try {
-      blockManager.restoreSnapshotDelta(snap.getSnapshotId(), prevSnap.getSnapshotId(), snapshotId, sr);
-    } catch (EucalyptusCloudException ece) {
-      cleanFailedSnapshot(snapshotId);
-      throw ece;
-    } finally {
+      snapshotTransfer.download(sr);
+    } catch (Exception e) {
+      LOG.error("Could not download snapshot " + snap.getSnapshotId() + " from object storage to temporary file " + diffPath, e);
       try {
         boolean existed = Files.deleteIfExists(diffPath);
         if (!existed) {
           LOG.debug("Temporary file " + diffPath + "did not exist to delete it, strange.");
         }
-      } catch (Exception e) {
-        LOG.warn("Temporary file " + diffPath + "could not be deleted, after downloading and restoring snapshot delta.");
+      } catch (Exception e2) {
+        LOG.warn("Temporary file " + diffPath + "could not be deleted", e);
       }
+      throw e;
+    }
+    
+    // Apply the snapshot delta
+    try {
+      blockManager.restoreSnapshotDelta(snap.getSnapshotId(), prevSnap.getSnapshotId(), snapshotId, sr);
+      // blockManager.restoreSnapshotDelta() will delete temp file whether 
+      // success or failure, so we don't have to.
+    } catch (EucalyptusCloudException ece) {
+      cleanFailedSnapshot(snapshotId);
+      throw ece;
     }
   }
 
