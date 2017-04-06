@@ -71,6 +71,7 @@ import org.hibernate.criterion.Restrictions;
 import com.eucalyptus.blockstorage.LogicalStorageManager;
 import com.eucalyptus.blockstorage.S3SnapshotTransfer;
 import com.eucalyptus.blockstorage.entities.SnapshotInfo;
+import com.eucalyptus.blockstorage.entities.SnapshotInfo_;
 import com.eucalyptus.blockstorage.util.StorageProperties;
 import com.eucalyptus.entities.Entities;
 import com.eucalyptus.entities.TransactionResource;
@@ -127,6 +128,7 @@ public class SnapshotDeleter extends CheckerTask {
         return;
       }
       if (snapshotsToBeDeleted != null && !snapshotsToBeDeleted.isEmpty()) {
+        LOG.debug("Deleting snapshots from EBS");
         for (SnapshotInfo snap : snapshotsToBeDeleted) {
           try {
             String snapshotId = snap.getSnapshotId();
@@ -170,16 +172,23 @@ public class SnapshotDeleter extends CheckerTask {
 
   private void deleteFromOSG() {
     try {
-      SnapshotInfo searchSnap = new SnapshotInfo();
-      searchSnap.setStatus(StorageProperties.Status.deletedfromebs.toString());
+      // Get the snapshots that are deleted from EBS but not yet deleted from OSG, 
+      // in reverse time order so we never try to delete a parent before a child
       List<SnapshotInfo> snapshotsToBeDeleted = null;
-      try {
-        snapshotsToBeDeleted = Transactions.findAll(searchSnap);
+      try (TransactionResource tr = Entities.transactionFor(SnapshotInfo.class)) {
+        snapshotsToBeDeleted = Entities.criteriaQuery(
+            Entities.restriction(SnapshotInfo.class)
+            .like(SnapshotInfo_.status, StorageProperties.Status.deletedfromebs.toString()).build())
+            .orderByDesc(SnapshotInfo_.startTime)
+            .list();
+        tr.commit();
       } catch (Exception e) {
-        LOG.warn("Failed to lookup snapshots marked for deletion from OSG", e);
+        LOG.warn("Failed database lookup of snapshots marked for deletion from OSG", e);
         return;
       }
+
       if (snapshotsToBeDeleted != null && !snapshotsToBeDeleted.isEmpty()) {
+        LOG.debug("Deleting snapshots from OSG");
         for (SnapshotInfo snap : snapshotsToBeDeleted) {
           try {
             String snapshotId = snap.getSnapshotId();

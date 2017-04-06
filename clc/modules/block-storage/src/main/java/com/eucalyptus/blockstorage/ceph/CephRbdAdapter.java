@@ -109,10 +109,11 @@ public interface CephRbdAdapter {
    * Try deleting RBD snapshots and return the ones that cannot deleted since they are busy (parent-child relationship with other images)
    * 
    * @param poolName Name of the pool
+   * @param imagePrefix Prefix of images that are marked for deletion
    * @param toBeDeleted Mapping of image and RBD snapshots to be deleted
    * @return Returns a mapping of RBD image and RBD snapshots that cannot be deleted due to their inheritance
    */
-  public SetMultimap<String, String> cleanUpSnapshots(String poolName, SetMultimap<String, String> toBeDeleted);
+  public SetMultimap<String, String> cleanUpSnapshots(String poolName, String imagePrefix, SetMultimap<String, String> toBeDeleted);
 
   /**
    * Rename RBD image

@@ -77,9 +77,14 @@ import com.eucalyptus.blockstorage.StorageResource;
 import com.eucalyptus.blockstorage.ceph.entities.CephRbdImageToBeDeleted;
 import com.eucalyptus.blockstorage.ceph.entities.CephRbdInfo;
 import com.eucalyptus.blockstorage.ceph.entities.CephRbdSnapshotToBeDeleted;
+import com.eucalyptus.blockstorage.ceph.entities.CephRbdSnapshotToBeDeleted_;
+import com.eucalyptus.blockstorage.entities.SnapshotInfo;
+import com.eucalyptus.blockstorage.entities.SnapshotInfo_;
 import com.eucalyptus.blockstorage.san.common.SANManager;
 import com.eucalyptus.blockstorage.san.common.SANProvider;
 import com.eucalyptus.blockstorage.util.StorageProperties;
+import com.eucalyptus.entities.Entities;
+import com.eucalyptus.entities.TransactionResource;
 import com.eucalyptus.entities.Transactions;
 import com.eucalyptus.storage.common.CheckerTask;
 import com.eucalyptus.util.EucalyptusCloudException;
@@ -532,10 +537,20 @@ public class CephRbdProvider implements SANProvider {
       try {
         for (final String pool : accessiblePools) { // Cycle through all pools
           try {
-            CephRbdSnapshotToBeDeleted search = new CephRbdSnapshotToBeDeleted().withPool(pool);
-
-            // Get the images that were marked for deletion from the database
-            List<CephRbdSnapshotToBeDeleted> listToBeDeleted = Transactions.findAll(search);
+            // Get the snapshots that were marked for deletion from the database, 
+            // in reverse time order so we never try to delete a parent before a child
+            List<CephRbdSnapshotToBeDeleted> listToBeDeleted = null;
+            try (TransactionResource tr = Entities.transactionFor(CephRbdSnapshotToBeDeleted.class)) {
+              listToBeDeleted = Entities.criteriaQuery(
+                  Entities.restriction(CephRbdSnapshotToBeDeleted.class)
+                  .like(CephRbdSnapshotToBeDeleted_.pool, pool).build())
+                  .orderByDesc(CephRbdSnapshotToBeDeleted_.creationTimestamp)
+                  .list();
+              tr.commit();
+            } catch (Exception e) {
+              LOG.warn("Failed database lookup of snapshots marked for deletion from OSG", e);
+              return;
+            }
 
             if (listToBeDeleted != null && !listToBeDeleted.isEmpty()) {
               SetMultimap<String, String> toBeDeleted = Multimaps.newSetMultimap(Maps.newHashMap(), new Supplier<Set<String>>() {
@@ -552,9 +567,11 @@ public class CephRbdProvider implements SANProvider {
               }
 
               // Invoke clean up
-              SetMultimap<String, String> cantBeDeleted = rbdService.cleanUpSnapshots(pool, toBeDeleted);
+              SetMultimap<String, String> cantBeDeleted = 
+                  rbdService.cleanUpSnapshots(pool, cachedConfig.getDeletedImagePrefix(), toBeDeleted);
 
               // Delete database records for all except those that couldn't be cleaned up
+              CephRbdSnapshotToBeDeleted search = new CephRbdSnapshotToBeDeleted().withPool(pool);
               Transactions.deleteAll(search, new Predicate<CephRbdSnapshotToBeDeleted>() {
                 @Override
                 public boolean apply(CephRbdSnapshotToBeDeleted arg0) {

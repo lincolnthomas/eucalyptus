@@ -300,8 +300,8 @@ public class CephRbdFormatTwoAdapter implements CephRbdAdapter {
   }
 
   @Override
-  public SetMultimap<String, String> cleanUpSnapshots(final String poolName, final SetMultimap<String, String> toBeDeleted) {
-    LOG.debug("Cleanup RBD snapshots poolName=" + poolName);
+  public SetMultimap<String, String> cleanUpSnapshots(final String poolName, final String imagePrefix, final SetMultimap<String, String> toBeDeleted) {
+    LOG.debug("Cleanup RBD snapshots poolName=" + poolName + ", prefix=" + imagePrefix);
     return executeRbdOpInPool(new Function<CephRbdConnectionManager, SetMultimap<String, String>>() {
 
       @Override
@@ -316,6 +316,7 @@ public class CephRbdFormatTwoAdapter implements CephRbdAdapter {
           });
 
           for (String imageName : toBeDeleted.keySet()) {
+            String originalImageName = imageName;
             RbdImage image = null;
             Set<String> snapNames = null;
 
@@ -323,7 +324,35 @@ public class CephRbdFormatTwoAdapter implements CephRbdAdapter {
               try {
                 LOG.trace("Opening image=" + imageName + ", pool=" + arg0.getPool() + ", mode=read-write");
                 image = arg0.getRbd().open(imageName);
-
+              } catch (RbdException e) {
+                LOG.debug("Image " + imageName + " could not be opened. " + 
+                    "Trying again with to-be-deleted prefix " + imagePrefix);
+                String prefixedImageName = imagePrefix + imageName;
+                RbdImage prefixedImage = null;
+                try {
+                  LOG.trace("Opening image=" + prefixedImageName + ", pool=" + arg0.getPool() + ", mode=read-write");
+                  prefixedImage = arg0.getRbd().open(prefixedImageName);
+                  LOG.debug("Image " + prefixedImageName + "opened successfully.");
+                  originalImageName = imageName;
+                  imageName = prefixedImageName;
+                  image = prefixedImage;
+                } catch (RbdException e2) {
+                  LOG.debug("Caught RBD error trying to open image " + prefixedImageName + " in pool " + poolName + ": " + e2.getMessage() +
+                      ", return value = " + e2.getReturnValue());
+                  throw new EucalyptusCephException("Failed while opening image " + imageName + " or " + prefixedImageName +
+                      " in pool " + poolName, e2);
+                } finally {
+                  if (prefixedImage != null) {
+                    try {
+                      LOG.trace("Closing image=" + prefixedImage + ", pool=" + arg0.getPool());
+                      arg0.getRbd().close(prefixedImage);
+                    } catch (Exception e3) {
+                      LOG.debug("Caught exception in RBD snapshot deletion while closing the image " + prefixedImage, e3);
+                    }
+                  }
+                }
+              }
+              try {
                 for (String snapName : snapNames) {
                   LOG.debug(
                       "RBD snapshot=" + snapName + ", image=" + imageName + ", pool=" + poolName + " marked for deletion, trying to clean it up");
@@ -343,12 +372,13 @@ public class CephRbdFormatTwoAdapter implements CephRbdAdapter {
                   } else {
                     LOG.debug("Cannot delete RBD snapshot=" + snapName + ", image=" + imageName + ", pool=" + poolName
                         + " as it may be a parent to other images");
-                    cantBeDeleted.put(imageName, snapName);
+                    // Add the non-prefixed image name to the list we send back to the caller.
+                    cantBeDeleted.put(originalImageName, snapName);
                   }
                 }
               } catch (RbdException e) {
                 LOG.debug("Caught RBD error deleting snapshots on image " + imageName + " in pool " + poolName + ": " + e.getMessage() +
-                    ", return value = " + e.getReturnValue() + "\n" + dontPanic);
+                    ", return value = " + e.getReturnValue());
                 throw new EucalyptusCephException("Failed while deleting snapshots on image " + imageName + " in pool " + poolName, e);
               } finally {
                 if (image != null) {
