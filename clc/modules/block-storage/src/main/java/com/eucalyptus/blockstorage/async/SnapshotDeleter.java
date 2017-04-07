@@ -124,15 +124,15 @@ public class SnapshotDeleter extends CheckerTask {
       try {
         snapshotsToBeDeleted = Transactions.findAll(searchSnap);
       } catch (Exception e) {
-        LOG.error("Failed to lookup snapshots marked for deletion", e);
+        LOG.warn("Failed to lookup snapshots marked for deletion", e);
         return;
       }
       if (snapshotsToBeDeleted != null && !snapshotsToBeDeleted.isEmpty()) {
-        LOG.debug("Deleting snapshots from EBS");
+        LOG.trace("Deleting snapshots from EBS");
         for (SnapshotInfo snap : snapshotsToBeDeleted) {
           try {
             String snapshotId = snap.getSnapshotId();
-            LOG.debug("Snapshot " + snapshotId + " was marked for deletion from EBS backend. Evaluating prerequistes for cleanup...");
+            LOG.debug("Snapshot " + snapshotId + " was marked for deletion from EBS backend. Evaluating prerequisites for cleanup...");
 
             if (snap.getIsOrigin() != null && snap.getIsOrigin()) { // check if snapshot originates in this az
               // acquire semaphore before deleting to avoid concurrent interaction with delta creation process
@@ -188,7 +188,7 @@ public class SnapshotDeleter extends CheckerTask {
       }
 
       if (snapshotsToBeDeleted != null && !snapshotsToBeDeleted.isEmpty()) {
-        LOG.debug("Deleting snapshots from OSG");
+        LOG.trace("Deleting snapshots from OSG");
         for (SnapshotInfo snap : snapshotsToBeDeleted) {
           try {
             String snapshotId = snap.getSnapshotId();
