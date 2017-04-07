@@ -58,6 +58,7 @@
 
 package com.eucalyptus.blockstorage.ceph;
 
+import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.List;
 import java.util.Random;
@@ -203,13 +204,15 @@ public class CephRbdFormatTwoAdapter implements CephRbdAdapter {
   }
 
   @Override
-  public void cleanUpImages(final String poolName, final String imagePrefix, final List<String> toBeDeleted) {
-    LOG.debug("Cleanup RBD images poolName=" + poolName + ", prefix=" + imagePrefix);
-    executeRbdOpInPool(new Function<CephRbdConnectionManager, String>() {
+  public List<String> cleanUpImages(final String poolName, final String imagePrefix, final List<String> toBeDeleted) {
+    LOG.trace("Cleanup RBD images poolName=" + poolName + ", prefix=" + imagePrefix);
+    return executeRbdOpInPool(new Function<CephRbdConnectionManager, List<String>>() {
 
       @Override
-      public String apply(CephRbdConnectionManager arg0) {
+      public List<String> apply(CephRbdConnectionManager arg0) {
         List<String> imageNames = null;
+        List<String> deletedSnapshotNames = new ArrayList<String>();
+        
         try {
           LOG.trace("Listing images in pool=" + poolName);
           imageNames = Arrays.asList(arg0.getRbd().list());
@@ -251,6 +254,7 @@ public class CephRbdFormatTwoAdapter implements CephRbdAdapter {
                     }
                     LOG.info("Removing snapshot=" + snap.name + ", image=" + imageName + ", pool=" + arg0.getPool());
                     image.snapRemove(snap.name);
+                    deletedSnapshotNames.add(snap.name);
                     continue;
                   }
                 }
@@ -294,14 +298,14 @@ public class CephRbdFormatTwoAdapter implements CephRbdAdapter {
           }
         }
 
-        return null;
+        return deletedSnapshotNames;
       }
     }, poolName);
   }
 
   @Override
   public SetMultimap<String, String> cleanUpSnapshots(final String poolName, final String imagePrefix, final SetMultimap<String, String> toBeDeleted) {
-    LOG.debug("Cleanup RBD snapshots poolName=" + poolName + ", prefix=" + imagePrefix);
+    LOG.trace("Cleanup RBD snapshots poolName=" + poolName + ", prefix=" + imagePrefix);
     return executeRbdOpInPool(new Function<CephRbdConnectionManager, SetMultimap<String, String>>() {
 
       @Override
@@ -324,15 +328,15 @@ public class CephRbdFormatTwoAdapter implements CephRbdAdapter {
               try {
                 LOG.trace("Opening image=" + imageName + ", pool=" + arg0.getPool() + ", mode=read-write");
                 image = arg0.getRbd().open(imageName);
-              } catch (RbdException e) {
-                LOG.debug("Image " + imageName + " could not be opened. " + 
+              } catch (RbdException e1) {
+                LOG.debug("Image " + imageName + " could not be opened. " +
                     "Trying again with to-be-deleted prefix " + imagePrefix);
                 String prefixedImageName = imagePrefix + imageName;
                 RbdImage prefixedImage = null;
                 try {
                   LOG.trace("Opening image=" + prefixedImageName + ", pool=" + arg0.getPool() + ", mode=read-write");
                   prefixedImage = arg0.getRbd().open(prefixedImageName);
-                  LOG.debug("Image " + prefixedImageName + "opened successfully.");
+                  LOG.debug("Image " + prefixedImageName + " opened successfully.");
                   originalImageName = imageName;
                   imageName = prefixedImageName;
                   image = prefixedImage;
@@ -341,15 +345,6 @@ public class CephRbdFormatTwoAdapter implements CephRbdAdapter {
                       ", return value = " + e2.getReturnValue());
                   throw new EucalyptusCephException("Failed while opening image " + imageName + " or " + prefixedImageName +
                       " in pool " + poolName, e2);
-                } finally {
-                  if (prefixedImage != null) {
-                    try {
-                      LOG.trace("Closing image=" + prefixedImage + ", pool=" + arg0.getPool());
-                      arg0.getRbd().close(prefixedImage);
-                    } catch (Exception e3) {
-                      LOG.debug("Caught exception in RBD snapshot deletion while closing the image " + prefixedImage, e3);
-                    }
-                  }
                 }
               }
               try {
@@ -367,7 +362,7 @@ public class CephRbdFormatTwoAdapter implements CephRbdAdapter {
                       LOG.trace("Unprotecting RBD snapshot=" + snapName + ", image=" + imageName + ", pool=" + arg0.getPool());
                       image.snapUnprotect(snapName);
                     }
-                    LOG.info("Removing RBD snapshot=" + snapName + ", image=" + imageName + ", pool=" + arg0.getPool());
+                    LOG.debug("Removing RBD snapshot=" + snapName + ", image=" + imageName + ", pool=" + arg0.getPool());
                     image.snapRemove(snapName);
                   } else {
                     LOG.debug("Cannot delete RBD snapshot=" + snapName + ", image=" + imageName + ", pool=" + poolName
@@ -383,7 +378,7 @@ public class CephRbdFormatTwoAdapter implements CephRbdAdapter {
               } finally {
                 if (image != null) {
                   try {
-                    LOG.trace("Closing image=" + imageName + ", pool=" + arg0.getPool());
+                    LOG.debug("Closing image=" + imageName + ", pool=" + arg0.getPool());
                     arg0.getRbd().close(image);
                   } catch (Exception e) {
                     LOG.debug("Caught exception in RBD snapshot deletion while closing the image " + imageName, e);

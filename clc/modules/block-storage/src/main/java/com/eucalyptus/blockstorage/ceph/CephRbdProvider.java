@@ -494,22 +494,40 @@ public class CephRbdProvider implements SANProvider {
     @Override
     public void run() {
       try {
+        LOG.trace("Starting Ceph RBD image cleanup process");
         for (final String pool : accessiblePools) { // Cycle through all pools
           try {
             CephRbdImageToBeDeleted search = new CephRbdImageToBeDeleted().withPoolName(pool);
 
             // Get the images that were marked for deletion from the database
             final List<String> imagesToBeCleaned = Transactions.transform(search, IMAGE_NAME_FUNCTION);
-
+            LOG.trace("List of images to be cleaned up for pool " + pool + ": " + imagesToBeCleaned);
+            
             // Invoke clean up
-            rbdService.cleanUpImages(pool, cachedConfig.getDeletedImagePrefix(), imagesToBeCleaned);
+            List<String> imageSnapshotsDeleted = 
+                rbdService.cleanUpImages(pool, cachedConfig.getDeletedImagePrefix(), imagesToBeCleaned);
+            if (imageSnapshotsDeleted != null && !imageSnapshotsDeleted.isEmpty()) {
+              LOG.debug("List of snapshots (on images) that were cleaned up for pool " + pool + ": " + imageSnapshotsDeleted);
+            }
 
-            // Delete database records after call to rbd succeeds
+            // Delete database records of to-be-deleted images after call to rbd succeeds
             if (imagesToBeCleaned != null && !imagesToBeCleaned.isEmpty()) {
               Transactions.deleteAll(search, new Predicate<CephRbdImageToBeDeleted>() {
                 @Override
                 public boolean apply(CephRbdImageToBeDeleted arg0) {
                   return imagesToBeCleaned.contains(arg0.getImageName());
+                }
+              });
+            }
+
+            // Delete database records of to-be-deleted snapshots for those snapshots
+            // that were actually deleted.
+            if (imageSnapshotsDeleted != null && !imageSnapshotsDeleted.isEmpty()) {
+              CephRbdSnapshotToBeDeleted searchDeleted = new CephRbdSnapshotToBeDeleted().withPool(pool);
+              Transactions.deleteAll(searchDeleted, new Predicate<CephRbdSnapshotToBeDeleted>() {
+                @Override
+                public boolean apply(CephRbdSnapshotToBeDeleted arg0) {
+                  return imageSnapshotsDeleted.contains(arg0.getSnapshot());
                 }
               });
             }
@@ -520,6 +538,7 @@ public class CephRbdProvider implements SANProvider {
       } catch (Exception e) {
         LOG.debug("Ignoring exception during clean up of images marked for deletion", e);
       }
+      
     }
   }
 
@@ -535,6 +554,7 @@ public class CephRbdProvider implements SANProvider {
     @Override
     public void run() {
       try {
+        LOG.trace("Starting Ceph RBD snapshot cleanup process");
         for (final String pool : accessiblePools) { // Cycle through all pools
           try {
             // Get the snapshots that were marked for deletion from the database, 
@@ -565,10 +585,12 @@ public class CephRbdProvider implements SANProvider {
               for (CephRbdSnapshotToBeDeleted r : listToBeDeleted) {
                 toBeDeleted.put(r.getImage(), r.getSnapshot());
               }
+              LOG.trace("List of snapshots to be cleaned up for pool " + pool + ": " + toBeDeleted.values());
 
               // Invoke clean up
               SetMultimap<String, String> cantBeDeleted = 
                   rbdService.cleanUpSnapshots(pool, cachedConfig.getDeletedImagePrefix(), toBeDeleted);
+              LOG.trace("List of snapshots that can't be cleaned up for pool " + pool + ": " + cantBeDeleted.values());
 
               // Delete database records for all except those that couldn't be cleaned up
               CephRbdSnapshotToBeDeleted search = new CephRbdSnapshotToBeDeleted().withPool(pool);

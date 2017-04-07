@@ -102,8 +102,11 @@ public interface CephRbdAdapter {
    * @param poolName Name of the pool
    * @param imagePrefix Prefix of images that are marked for deletion
    * @param toBeDeleted Set of images that have never been cleaned up
+   * @return Returns a list of RBD snapshot names that were deleted, so their RBD snapshots (not clones) can be removed
+   * from the snapshot-to-be-deleted table. Necessary because the image might be gone by the time cleanUpSnapshots 
+   * runs, and thus it would be unable to delete these snapshots.
    */
-  public void cleanUpImages(String poolName, String imagePrefix, List<String> toBeDeleted);
+  public List<String> cleanUpImages(String poolName, String imagePrefix, List<String> toBeDeleted);
 
   /**
    * Try deleting RBD snapshots and return the ones that cannot deleted since they are busy (parent-child relationship with other images)
