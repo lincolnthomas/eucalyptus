@@ -278,6 +278,8 @@ public class BlockStorageController implements BlockStorageService {
     CheckerThreadPool.initialize();
 
     // Add checkers for volume and snapshot maintenance
+    // Removed for diagnosing SUP-706 Ceph crash 2 mins after SC startup
+/*
     CheckerThreadPool.add(new VolumeDeleter(blockManager));
     CheckerThreadPool.add(new FailedVolumeCleaner(blockManager));
     CheckerThreadPool.add(new ExpiredVolumeCleaner());
@@ -287,13 +289,16 @@ public class BlockStorageController implements BlockStorageService {
     CheckerThreadPool.add(new ExpiredSnapshotCleaner());
     CheckerThreadPool.add(new SnapshotTransferCleaner());
     CheckerThreadPool.add(new ThreadPoolSizeUpdater());
+*/
     // add any block manager checkers
     List<CheckerTask> backendCheckers = null;
+/*
     if ((backendCheckers = blockManager.getCheckers()) != null && !backendCheckers.isEmpty()) {
       for (CheckerTask checker : backendCheckers) {
         CheckerThreadPool.add(checker);
       }
     }
+*/    
 
     // TODO ask neil what this means
     StorageProperties.enableSnapshots = StorageProperties.enableStorage = true;

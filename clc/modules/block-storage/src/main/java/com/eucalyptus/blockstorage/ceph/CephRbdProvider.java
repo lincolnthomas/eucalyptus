@@ -596,8 +596,9 @@ public class CephRbdProvider implements SANProvider {
   @Override
   public List<CheckerTask> getCheckers() {
     List<CheckerTask> list = Lists.newArrayList();
-    list.add(new CephRbdImageDeleter());
-    list.add(new CephRbdSnapshotDeleter());
+    // Removed for diagnosing SUP-706 Ceph crash 2 mins after SC startup
+    //list.add(new CephRbdImageDeleter());
+    //list.add(new CephRbdSnapshotDeleter());
     return list;
   }
 
