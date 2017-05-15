@@ -48,68 +48,54 @@ public class CephCleaner {
 
   private static final Logger LOG = Logger.getLogger(CephCleaner.class);
 
-  private static final Function<CephRbdImageToBeDeleted, String> IMAGE_NAME_FUNCTION = new Function<CephRbdImageToBeDeleted, String>() {
-    @Override
-    public String apply(CephRbdImageToBeDeleted arg0) {
-      return arg0.getImageName();
-    }
-  };
-
   private static Set<String> accessiblePools = Sets.newHashSet();
-  
+
   private static CephRbdAdapter rbdService = null;
   private static CephRbdInfo cephInfo = new CephRbdInfo();
-//  private static DatabaseDestination dest = null;
-  
+
   public static void main(String[] args) {
     System.out.println("CephCleaner " + OffsetDateTime.now().toString() + ": Starting one-time cleaning of Ceph already-deleted images (volumes) and snapshots.");
     LOG.info("Starting one-time cleaning of Ceph already-deleted images (volumes) and snapshots.");
 
-/*    try {
-      StandalonePersistence.setupInitProviders();
-      StandalonePersistence.eucaHome="/";
-      StandalonePersistence.setupSystemProperties();
-      
-      dest = ( DatabaseDestination ) ClassLoader.getSystemClassLoader( ).loadClass( "com.eucalyptus.upgrade.PostgresqlDestination" ).newInstance( );
-      dest.initialize( );
-*/
-      String[] cmd = new String[] {StorageProperties.EUCA_ROOT_WRAPPER, "psql", "-h", "/var/lib/eucalyptus/db/data/", "-p", "8777", 
-          "eucalyptus_shared", "-t", "-c",
-          "select ceph_config_file,ceph_keyring_file,ceph_snapshot_pools,ceph_user,ceph_volume_pools,cluster_name,deleted_image_prefix,virsh_secret from eucalyptus_storage.ceph_rbd_info"};
-      LOG.debug("Executing: " + Joiner.on(" ").skipNulls().join(cmd));
-      CommandOutput output = null;
-      try {
-        output = SystemUtil.runWithRawOutput(cmd);
-      } catch (Exception e) {
-        LOG.error("Error executing psql command:",e);
-      }
-      if (output == null) {
-        LOG.error("No output from psql command, exiting.");
-        return;
-      }
-      LOG.debug("Dump from rbd command:\nReturn value=" + output.returnValue + "\nOutput=" + output.output + "\nDebug=" + output.error);
-      String[] cephRbdInfoOutput = output.output.split("[|]");
-      cephInfo.setCephConfigFile(cephRbdInfoOutput[0].trim());
-      cephInfo.setCephKeyringFile(cephRbdInfoOutput[1].trim());
-      cephInfo.setCephSnapshotPools(cephRbdInfoOutput[2].trim());
-      cephInfo.setCephUser(cephRbdInfoOutput[3].trim());
-      cephInfo.setCephVolumePools(cephRbdInfoOutput[4].trim());
-      cephInfo.setClusterName(cephRbdInfoOutput[5].trim());
-      cephInfo.setDeletedImagePrefix(cephRbdInfoOutput[6].trim());
-      cephInfo.setVirshSecret(cephRbdInfoOutput[7].trim());
-      
-      LOG.debug("cephInfo is " + cephInfo);
-/*    } catch (Exception e) {
-      LOG.info("CephCleaner Exception: ", e);
+    if (args == null || args.length == 0 || args[0] == null) {
+      LOG.error("No CLC IP provided on the command line, exiting!");
+      return;
     }
-*/
 
-/*
-    LOG.info("Initializing CephInfo entity!");
-    cephInfo = CephRbdInfo.getStorageInfo();
-*/
-    LOG.debug("Deleted prefix is " + cephInfo.getDeletedImagePrefix() + ", volume pools are " + cephInfo.getCephVolumePools());
-    
+    String clcIp = args[0];
+
+    LOG.info("CLC IP provided on command line is: " + clcIp);
+
+    String[] cmd = new String[] {StorageProperties.EUCA_ROOT_WRAPPER, "ssh", clcIp, "psql -h /var/lib/eucalyptus/db/data/ -p 8777" + 
+        " eucalyptus_shared -t -c" +
+    " 'select ceph_config_file,ceph_keyring_file,ceph_snapshot_pools,ceph_user,ceph_volume_pools,cluster_name,deleted_image_prefix,virsh_secret from eucalyptus_storage.ceph_rbd_info'"};
+
+    LOG.debug("Executing: " + Joiner.on(" ").skipNulls().join(cmd));
+    CommandOutput output = null;
+    try {
+      output = SystemUtil.runWithRawOutput(cmd);
+    } catch (Exception e) {
+      LOG.error("Error executing psql command:",e);
+    }
+    if (output == null) {
+      LOG.error("No output from psql command, exiting.");
+      return;
+    }
+    LOG.debug("Dump from rbd command:\nReturn value=" + output.returnValue + "\nOutput=" + output.output + "\nDebug=" + output.error);
+    String[] cephRbdInfoOutput = output.output.split("[|]");
+    cephInfo.setCephConfigFile(cephRbdInfoOutput[0].trim());
+    cephInfo.setCephKeyringFile(cephRbdInfoOutput[1].trim());
+    cephInfo.setCephSnapshotPools(cephRbdInfoOutput[2].trim());
+    cephInfo.setCephUser(cephRbdInfoOutput[3].trim());
+    cephInfo.setCephVolumePools(cephRbdInfoOutput[4].trim());
+    cephInfo.setClusterName(cephRbdInfoOutput[5].trim());
+    cephInfo.setDeletedImagePrefix(cephRbdInfoOutput[6].trim());
+    cephInfo.setVirshSecret(cephRbdInfoOutput[7].trim());
+
+    LOG.debug("cephInfo is " + cephInfo);
+    LOG.debug("Deleted prefix is " + cephInfo.getDeletedImagePrefix() + ", first volume pool is " + cephInfo.getCephVolumePools()
+      + ", cluster name is " + cephInfo.getClusterName());
+
     LOG.info("Initializing Ceph RBD service provider");
     rbdService = new CephRbdFormatTwoAdapter(cephInfo);
 
@@ -120,48 +106,27 @@ public class CephCleaner {
 
     LOG.info("Cleaning up already-deleted images (volumes) in Ceph RBD pools.");
     cleanDeletedCephImages();
-/*
+    /*
     LOG.info("Cleaning up already-deleted snapshots in Ceph RBD pools.");
     cleanDeletedCephSnapshots();
-*/
+     */
 
     LOG.info("Finished one-time cleaning of Ceph already-deleted images (volumes) and snapshots.");
     System.out.println("CephCleaner " + OffsetDateTime.now().toString() + ": Finished one-time cleaning of Ceph already-deleted images (volumes) and snapshots.");
   }  // end main
 
   private static void cleanDeletedCephImages () {
-    try {
-      for (final String pool : accessiblePools) { // Cycle through all pools
-        try {
-/*          CephRbdImageToBeDeleted search = new CephRbdImageToBeDeleted().withPoolName(pool);
-
-          // Get the images that were marked for deletion from the database
-          final List<String> imagesToBeCleaned = Transactions.transform(search, IMAGE_NAME_FUNCTION);
-*/
-          // Invoke clean up
-          rbdService.cleanUpImages(pool, cephInfo.getDeletedImagePrefix(), null);
-
-/*          
-          // Delete database records after call to rbd succeeds
-          if (imagesToBeCleaned != null && !imagesToBeCleaned.isEmpty()) {
-            Transactions.deleteAll(search, new Predicate<CephRbdImageToBeDeleted>() {
-              @Override
-              public boolean apply(CephRbdImageToBeDeleted arg0) {
-                return imagesToBeCleaned.contains(arg0.getImageName());
-              }
-            });
-          }
-*/
-        } catch (Throwable t) {
-          LOG.debug("Encountered error while cleaning up images in pool " + pool, t);
-        }
+    for (final String pool : accessiblePools) { // Cycle through all pools
+      try {
+        // Invoke clean up
+        rbdService.cleanUpImages(pool, cephInfo.getDeletedImagePrefix(), null);
+      } catch (Throwable t) {
+        LOG.debug("Encountered error while cleaning up images in pool " + pool, t);
       }
-    } catch (Exception e) {
-      LOG.debug("Ignoring exception during clean up of images marked for deletion", e);
     }
   }  // end cleanDeletedCephImages
 
-
+/*
   private static void cleanDeletedCephSnapshots () {
 
     try {
@@ -209,5 +174,6 @@ public class CephCleaner {
       LOG.debug("Ignoring exception during clean up of rbd snapshots marked for deletion", e);
     }
   }  // end cleanDeletedCephSnapshots
-
+*/
+  
 }  // end class CephCleaner
